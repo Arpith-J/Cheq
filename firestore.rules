@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      allow read:   if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid;
+
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    && (
+                      // Path A: coins not touched → always allow
+                      !request.resource.data.diff(resource.data)
+                        .affectedKeys().hasAny(['coins'])
+                      ||
+                      // Path B: coins touched → increment must be between 5 and 50
+                      (
+                        request.resource.data.coins > resource.data.coins
+                        && (request.resource.data.coins - resource.data.coins) >= 5
+                        && (request.resource.data.coins - resource.data.coins) <= 50
+                      )
+                    );
+
+      match /todo_collections/{docId} {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+        allow create, update: if request.auth != null
+                        && request.auth.uid == uid
+                        // Enforce coinsReward is always 5–50
+                        && request.resource.data.coinsReward >= 5
+                        && request.resource.data.coinsReward <= 50;
+        }
+    }
+
+  }
+}
