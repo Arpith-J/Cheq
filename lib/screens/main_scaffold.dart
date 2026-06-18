@@ -92,7 +92,17 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
 
         // Right — coin pill
         actions: [
-          _CoinPill(coinCount: coinCount),
+          coinCount.when(
+            data: (coins) => _CoinPill(coinCount: coins),
+            loading: () => const Center(
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            error: (_, __) => const Icon(Icons.error_outline, color: Colors.red),
+          ),
           const SizedBox(width: 16),
         ],
       ),
