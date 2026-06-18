@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "516273499737",
+    "project_id": "cheq-app-prod-a8e01",
+    "storage_bucket": "cheq-app-prod-a8e01.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:516273499737:android:f9418f9f889071caab0b48",
+        "android_client_info": {
+          "package_name": "com.example.cheq"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCr6zt2-PedjguKxADC-oUD3pE-Mjj2sgo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

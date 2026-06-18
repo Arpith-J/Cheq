@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "516273499737",
+    "project_id": "cheq-app-prod-a8e01",
+    "storage_bucket": "cheq-app-prod-a8e01.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:516273499737:android:f9418f9f889071caab0b48",
+        "android_client_info": {
+          "package_name": "com.example.cheq"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "516273499737-lnkerp90tpcqaetb5mvjpf7fslnbj3ku.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.cheq",
+            "certificate_hash": "3636e05c676dee75fee56d7f4722c66aa62fa07e"
+          }
+        },
+        {
+          "client_id": "516273499737-jbl7a3rde5qp75qr7f4484g9hintmud9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCr6zt2-PedjguKxADC-oUD3pE-Mjj2sgo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "516273499737-jbl7a3rde5qp75qr7f4484g9hintmud9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "516273499737-u0jatb93ukc7i659oa0qnvmbsin1lrag.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.cheq"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
