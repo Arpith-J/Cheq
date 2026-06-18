@@ -49,13 +49,14 @@ class TodoCollection {
     required this.createdAt,
     required this.isArchived,
     required this.items,
-    this.coinsReward = 15,
+    required this.coinsReward,
   });
 
+  // Business Logic: Differentiate single line Tasks from compound Lists
+  bool get isSingleTask => items.length == 1 && items.first.text == title;
   bool get isCompleted => items.isNotEmpty && items.every((i) => i.isDone);
 
-  factory TodoCollection.fromDoc(
-      DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory TodoCollection.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
     final rawItems = (data['items'] as List<dynamic>?) ?? [];
     return TodoCollection(
@@ -66,7 +67,7 @@ class TodoCollection {
       items:       rawItems
           .map((e) => TodoItem.fromMap(e as Map<String, dynamic>))
           .toList(),
-      coinsReward: (data['coinsReward'] as int?) ?? 15,
+      coinsReward: (data['coinsReward'] as int?) ?? 10,
     );
   }
 }
@@ -84,19 +85,18 @@ CollectionReference<Map<String, dynamic>> _collectionsRef() =>
         .collection('todo_collections');
 
 // ---------------------------------------------------------------------------
-// StreamProvider — real-time list, non-archived, newest first
+// StreamProvider — pulls all items up to 3 days old for completions
 // ---------------------------------------------------------------------------
 
-final todoCollectionsProvider =
-    StreamProvider<List<TodoCollection>>((ref) {
+final todoCollectionsProvider = StreamProvider<List<TodoCollection>>((ref) {
   final uid = _uid();
   if (uid == null) return const Stream.empty();
 
+  // Pull everything from the user. Filtering logic happens dynamically in the UI
   return FirebaseFirestore.instance
       .collection('users')
       .doc(uid)
       .collection('todo_collections')
-      .where('isArchived', isEqualTo: false)
       .orderBy('createdAt', descending: true)
       .snapshots()
       .map((snap) => snap.docs.map(TodoCollection.fromDoc).toList());
@@ -110,24 +110,21 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
   @override
   Future<void> build() async {}
 
-  // ── Create ───────────────────────────────────────────────────────────────
-
   Future<void> createCollection(
     String title,
     List<String> initialItemTexts, {
-    int coinsReward = 15,
+    required int coinsReward,
   }) async {
     if (title.trim().isEmpty) return;
 
-    final items = initialItemTexts
-        .where((t) => t.trim().isNotEmpty)
-        .mapIndexed(
-          (i, text) => TodoItem(
-            id:     'item_${DateTime.now().millisecondsSinceEpoch}_$i',
-            text:   text.trim(),
-            isDone: false,
-          ),
-        )
+    final filteredTexts = initialItemTexts.where((t) => t.trim().isNotEmpty).toList();
+
+    final items = filteredTexts
+        .mapIndexed((i, text) => TodoItem(
+              id:     'item_${DateTime.now().millisecondsSinceEpoch}_$i',
+              text:   text.trim(),
+              isDone: false,
+            ))
         .map((e) => e.toMap())
         .toList();
 
@@ -136,26 +133,16 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
       'createdAt':   FieldValue.serverTimestamp(),
       'isArchived':  false,
       'items':       items,
-      'coinsReward': coinsReward.clamp(5, 50),
+      'coinsReward': coinsReward,
     });
   }
 
-  // ── Toggle item ──────────────────────────────────────────────────────────
-
-  Future<void> toggleItem(
-    String collectionId,
-    String itemId,
-    bool currentStatus,
-  ) async {
+  Future<void> toggleItem(String collectionId, String itemId, bool currentStatus) async {
     final uid = _uid();
     if (uid == null) return;
 
     final db      = FirebaseFirestore.instance;
-    final colRef  = db
-        .collection('users')
-        .doc(uid)
-        .collection('todo_collections')
-        .doc(collectionId);
+    final colRef  = db.collection('users').doc(uid).collection('todo_collections').doc(collectionId);
     final userRef = db.collection('users').doc(uid);
 
     await db.runTransaction((tx) async {
@@ -163,9 +150,7 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
       if (!snap.exists) return;
 
       final rawItems = List<Map<String, dynamic>>.from(
-        (snap.data()!['items'] as List<dynamic>).map(
-          (e) => Map<String, dynamic>.from(e as Map),
-        ),
+        (snap.data()!['items'] as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)),
       );
 
       final updated = rawItems.map((item) {
@@ -176,12 +161,15 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
       }).toList();
 
       final allDone     = updated.every((item) => item['isDone'] == true);
-      final coinsReward = (snap.data()!['coinsReward'] as int?) ?? 15;
+      final coinsReward = (snap.data()!['coinsReward'] as int?) ?? 10;
 
       tx.update(colRef, {'items': updated});
 
       if (allDone) {
-        tx.update(colRef, {'isArchived': true});
+        tx.update(colRef, {
+          'isArchived': true,
+          'archivedAt': FieldValue.serverTimestamp(), // Track completion time
+        });
         tx.update(userRef, {
           'coins': FieldValue.increment(coinsReward),
         });
@@ -189,23 +177,16 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
     });
   }
 
-  // ── Delete ───────────────────────────────────────────────────────────────
-
   Future<void> deleteCollection(String collectionId) async {
     await _collectionsRef().doc(collectionId).delete();
   }
 }
 
-final todoCollectionNotifierProvider =
-    AsyncNotifierProvider<TodoCollectionNotifier, void>(
+final todoCollectionNotifierProvider = AsyncNotifierProvider<TodoCollectionNotifier, void>(
   TodoCollectionNotifier.new,
 );
 
-// ---------------------------------------------------------------------------
-// Extension — mapIndexed
-// ---------------------------------------------------------------------------
-
-extension _IndexedMap<T> on Iterable<T> {
+extension TodoIndexedMap<T> on List<T> {
   Iterable<R> mapIndexed<R>(R Function(int index, T item) f) sync* {
     var i = 0;
     for (final item in this) {
@@ -213,15 +194,3 @@ extension _IndexedMap<T> on Iterable<T> {
     }
   }
 }
-
-// Streams the current user's profile document to get live coin updates
-final userProfileProvider = StreamProvider<Map<String, dynamic>>((ref) {
-  final uid = _uid();
-  if (uid == null) return const Stream.empty();
-
-  return FirebaseFirestore.instance
-      .collection('users')
-      .doc(uid)
-      .snapshots()
-      .map((snap) => snap.data() ?? {});
-});
