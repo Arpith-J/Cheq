@@ -12,6 +12,16 @@ class PlannerNotifier extends Notifier<List<PlannerModel>> {
   void removeEntry(String id) =>
       state = state.where((e) => e.id != id).toList();
 
+  void toggleDone(String id) {
+    state = [
+      for (final entry in state)
+        if (entry.id == id)
+          entry.copyWith(isDone: !entry.isDone)
+        else
+          entry,
+    ];
+  }
+
   void markNotified(String id) {
     state = [
       for (final entry in state)
@@ -32,16 +42,14 @@ final plannerProvider = NotifierProvider<PlannerNotifier, List<PlannerModel>>(
 );
 
 /// Derived — entries for a specific date, sorted by start time.
-/// NOTE: In Riverpod 3, family Notifiers use a constructor arg. For simple
-/// derived reads, Provider.family still works fine.
 final plannerForDateProvider =
     Provider.family<List<PlannerModel>, DateTime>((ref, date) {
   final entries = ref.watch(plannerProvider);
   return entries
       .where((e) =>
-          e.startTime.year == date.year &&
+          e.startTime.year  == date.year &&
           e.startTime.month == date.month &&
-          e.startTime.day == date.day)
+          e.startTime.day   == date.day)
       .toList()
     ..sort((a, b) => a.startTime.compareTo(b.startTime));
 });
