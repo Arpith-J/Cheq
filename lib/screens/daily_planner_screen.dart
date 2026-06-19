@@ -151,27 +151,35 @@ class DailyPlannerScreen extends ConsumerWidget {
     DateTime e(int h, int m) => base.add(Duration(hours: h, minutes: m));
 
     final seeds = [
-      PlannerModel(id: 's1', title: 'Morning standup',      startTime: s(9,  0),  endTime: e(9,  30)),
+      PlannerModel(id: 's1', title: 'Morning standup',       startTime: s(9,  0),  endTime: e(9,  30)),
       PlannerModel(id: 's2', title: 'Review pull requests', startTime: s(10, 30), endTime: e(11, 30)),
       PlannerModel(id: 's3', title: 'Lunch with the team',  startTime: s(13, 0),  endTime: e(14, 0)),
       PlannerModel(id: 's4', title: 'Design system review', startTime: s(15, 0),  endTime: e(16, 0)),
       PlannerModel(id: 's5', title: 'Write release notes',  startTime: s(16, 30), endTime: e(17, 0)),
       PlannerModel(id: 's6', title: 'Evening workout',       startTime: s(18, 0),  endTime: e(19, 0)),
     ];
-    for (final seed in seeds) {
-      ref.read(plannerProvider.notifier).addEntry(seed);
-    }
+
+    // ── FIX 1: Wrap the state modification in a PostFrameCallback ───────────
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final seed in seeds) {
+        ref.read(plannerProvider.notifier).addEntry(seed);
+      }
+    });
+    // ────────────────────────────────────────────────────────────────────────
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Flipped safe gate runs here, but execution is safely deferred until the frame finishes drawing
     _seedMockData(ref);
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
-      body: const Column(
+      // ── FIX 2: Remove the 'const' keyword here ────────────────────────────
+      // (Column can no longer be const because _TaskFeed internally watches the active providers)
+      body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: const [
           _WeekHeader(),
           Expanded(child: _TaskFeed()),
         ],
@@ -192,9 +200,6 @@ class DailyPlannerScreen extends ConsumerWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      // ✅ UncontrolledProviderScope — correct way to pass the container
-      // into a modal/overlay widget tree in Riverpod 2+/3+.
-      // ProviderScope(parent: ...) was deprecated and removed.
       builder: (_) => UncontrolledProviderScope(
         container: ProviderScope.containerOf(context),
         child:     const _AddTaskSheet(),
