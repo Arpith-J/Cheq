@@ -9,7 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart' hide RepeatInterval;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/planner_model.dart';
@@ -396,6 +396,9 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double>    _strikeAnim;
+  
+  // ── FIX 1: Add the expanded layout visibility state tracking flag ───────
+  bool _isExpanded = false; 
 
   @override
   void initState() {
@@ -422,6 +425,36 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     super.dispose();
   }
 
+  // Helper method to format standard time strings cleanly for the details sub-panel
+  String _formatTimeString(DateTime dt) {
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour < 12 ? 'AM' : 'PM';
+    return '$hour:$minute $period';
+  }
+
+  Future<bool> _showDeleteConfirmDialog(BuildContext context) async {
+  final cs = Theme.of(context).colorScheme;
+  return await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Task', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          content: const Text('Are you sure you want to permanently delete this task?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: cs.error),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
   @override
   Widget build(BuildContext context) {
     final theme    = Theme.of(context);
@@ -435,7 +468,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
       background: Container(
         alignment:  Alignment.centerRight,
         padding:    const EdgeInsets.only(right: 20),
-        margin:     const EdgeInsets.only(bottom: 2),
+        margin:     const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color:        cs.errorContainer,
           borderRadius: BorderRadius.circular(14),
@@ -444,124 +477,191 @@ class _TaskRowState extends ConsumerState<_TaskRow>
       ),
       onDismissed: (_) => notifier.removeEntry(entry.id),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 2),
+        margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color:        cs.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
         ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Time gutter ──────────────────────────────────────────────
-              Container(
-                width:   56,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _formatHour(entry.startTime),
-                      style: TextStyle(
-                        fontSize:   12,
-                        fontWeight: FontWeight.w700,
-                        color:      entry.isDone
-                            ? cs.onSurface.withValues(alpha: 0.3)
-                            : cs.primary,
-                      ),
-                    ),
-                    Text(
-                      _formatMinute(entry.startTime),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color:    entry.isDone
-                            ? cs.onSurface.withValues(alpha: 0.25)
-                            : cs.onSurface.withValues(alpha: 0.5),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Accent line ───────────────────────────────────────────────
-              Container(
-                width:  1,
-                margin: const EdgeInsets.symmetric(vertical: 10),
-                color:  entry.isDone
-                    ? cs.outlineVariant.withValues(alpha: 0.3)
-                    : cs.primary.withValues(alpha: 0.35),
-              ),
-
-              // ── Content ───────────────────────────────────────────────────
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
+        // ── FIX 2: Wrap inside InkWell to make the entire task card tappable ──
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _isExpanded = !_isExpanded),
+          onLongPress: () async {
+            final confirmed = await _showDeleteConfirmDialog(context);
+            if (confirmed && mounted) {
+                ref.read(plannerProvider.notifier).removeEntry(entry.id);
+            }
+          },  
+          // ── FIX 3: Wrap inside AnimatedSize for smooth resizing animations ──
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IntrinsicHeight(
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: AnimatedBuilder(
-                          animation: _strikeAnim,
-                          builder: (_, _) => Text(
-                            entry.title,
-                            style: TextStyle(
-                              fontSize:   14,
-                              fontWeight: FontWeight.w500,
-                              color: Color.lerp(
-                                cs.onSurface,
-                                cs.onSurface.withValues(alpha: 0.35),
-                                _strikeAnim.value,
-                              ),
-                              decoration: entry.isDone
-                                  ? TextDecoration.lineThrough
-                                  : TextDecoration.none,
-                              decorationColor:
-                                  cs.onSurface.withValues(alpha: 0.4),
-                              decorationThickness: 1.5,
-                            ),
+                      // ── Time Gutter ────────────────────────────────────────
+                      Container(
+                        width: 82, // Explicit width gives "12:00 PM" plenty of horizontal room
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                        alignment: Alignment.center, // Centers the time text inside its gutter space
+                        child: Text(
+                          _formatTimeString(entry.startTime), // Single string output: "09:00 AM"
+                          maxLines: 1, // Strictly forbids vertical wrapping
+                          softWrap: false,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: entry.isDone
+                                ? cs.onSurface.withValues(alpha: 0.3)
+                                : cs.primary,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      if (entry.isNotified)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Icon(
-                            Icons.notifications_active_rounded,
-                            size:  14,
-                            color: cs.primary.withValues(alpha: 0.7),
+
+                      // ── Accent Separator Line ──────────────────────────────
+                      Container(
+                        width:  1,
+                        margin: const EdgeInsets.symmetric(vertical: 10),
+                        color:  entry.isDone
+                            ? cs.outlineVariant.withValues(alpha: 0.3)
+                            : cs.primary.withValues(alpha: 0.35),
+                      ),
+
+                      // ── Core Row Content ───────────────────────────────────
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: AnimatedBuilder(
+                                  animation: _strikeAnim,
+                                  builder: (_, _) => Text(
+                                    entry.title,
+                                    style: TextStyle(
+                                      fontSize:   14,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color.lerp(
+                                        cs.onSurface,
+                                        cs.onSurface.withValues(alpha: 0.35),
+                                        _strikeAnim.value,
+                                      ),
+                                      decoration: entry.isDone
+                                          ? TextDecoration.lineThrough
+                                          : TextDecoration.none,
+                                      decorationColor: cs.onSurface.withValues(alpha: 0.4),
+                                      decorationThickness: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (entry.isNotified)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Icon(
+                                    Icons.notifications_active_rounded,
+                                    size:  14,
+                                    color: cs.primary.withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              SizedBox(
+                                width:  24,
+                                height: 24,
+                                child: Checkbox(
+                                  value:     entry.isDone,
+                                  onChanged: (_) => notifier.toggleDone(entry.id),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      SizedBox(
-                        width:  24,
-                        height: 24,
-                        child: Checkbox(
-                          value:     entry.isDone,
-                          onChanged: (_) => notifier.toggleDone(entry.id),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                
+                // ── FIX 4: The Drop-down Details Panel (Reveals when tapped) ──
+                if (_isExpanded)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(79, 0, 14, 14), // Inline alignment past the gutter line
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time_rounded, size: 14, color: cs.onSurfaceVariant),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Duration: ${_formatTimeString(entry.startTime)} - ${_formatTimeString(entry.endTime)}',
+                              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(Icons.sync_rounded, size: 14, color: cs.primary),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Repeats: ${entry.repeatInterval.name.toUpperCase()}',
+                              style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
+                            ),
+                            const Spacer(),
+                            // ── Future Edit Action Button Stub ──────────────
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () {
+                                  showModalBottomSheet(
+                                  context:            context,
+                                  isScrollControlled: true,
+                                  useSafeArea:        true,
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                  ),
+                                  builder: (_) => UncontrolledProviderScope(
+                                    container: ProviderScope.containerOf(context),
+                                    child: _AddTaskSheet(initialEntry: entry), // PASSING DATA HERE
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.edit_rounded, size: 14),
+                              label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  String _formatHour(DateTime dt) =>
-      '${dt.hour % 12 == 0 ? 12 : dt.hour % 12}';
+  // String _formatHour(DateTime dt) =>
+  //     '${dt.hour % 12 == 0 ? 12 : dt.hour % 12}';
 
-  String _formatMinute(DateTime dt) =>
-      '${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+  // String _formatMinute(DateTime dt) =>
+  //     '${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -606,31 +706,52 @@ class _EmptyDay extends StatelessWidget {
 // ════════════════════════════════════════════════════════════════════════════
 
 class _AddTaskSheet extends ConsumerStatefulWidget {
-  const _AddTaskSheet();
+  // ── FIX 1: Add parameter to capture target item for edit workflows ───────
+  final PlannerModel? initialEntry; 
+  
+  const _AddTaskSheet({this.initialEntry});
 
   @override
   ConsumerState<_AddTaskSheet> createState() => _AddTaskSheetState();
 }
 
 class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
-  final _titleCtrl  = TextEditingController();
+  // Use late to safely coordinate constructor assignments inside initState
+  late final TextEditingController _titleCtrl;
   final _titleFocus = FocusNode();
 
-  bool      _isSaving  = false;
-  bool      _notifyMe  = false;
-  TimeOfDay _startTime = TimeOfDay.now();
+  bool      _isSaving      = false;
+  bool      _notifyMe      = false;
+  late TimeOfDay _startTime;
   late TimeOfDay _endTime;
+  late RepeatInterval _repeatInterval;
+  Duration?      _customInterval;
 
   @override
   void initState() {
     super.initState();
-    _endTime = TimeOfDay(
-      hour:   (_startTime.hour + 1) % 24,
-      minute: _startTime.minute,
-    );
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _titleFocus.requestFocus(),
-    );
+    final entry = widget.initialEntry;
+
+    // ── FIX 2: Check for existing task properties to hydrate the form ────────
+    _titleCtrl = TextEditingController(text: entry?.title ?? '');
+    _notifyMe = entry?.isNotified ?? false;
+    _repeatInterval = entry?.repeatInterval ?? RepeatInterval.none;
+    _customInterval = entry?.customInterval;
+
+    if (entry != null) {
+      _startTime = TimeOfDay.fromDateTime(entry.startTime);
+      _endTime = TimeOfDay.fromDateTime(entry.endTime);
+    } else {
+      _startTime = TimeOfDay.now();
+      _endTime = TimeOfDay(
+        hour:   (_startTime.hour + 1) % 24,
+        minute: _startTime.minute,
+      );
+      // Auto-focus text keyboard ONLY when framing an empty sheet
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _titleFocus.requestFocus(),
+      );
+    }
   }
 
   @override
@@ -664,6 +785,40 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
     });
   }
 
+  Future<void> _showCustomIntervalDialog() async {
+    final ctrl = TextEditingController();
+    final steps = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Custom Interval', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Repeat every X days',
+            hintText: 'e.g. 3',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+
+    if (steps != null && steps > 0) {
+      setState(() => _customInterval = Duration(days: steps));
+    } else {
+      setState(() {
+        _repeatInterval = RepeatInterval.none;
+        _customInterval = null;
+      });
+    }
+  }
+
   Future<void> _save() async {
     if (_titleCtrl.text.trim().isEmpty) {
       _titleFocus.requestFocus();
@@ -678,24 +833,40 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
 
       final startDt = toDateTime(_startTime);
       final endDt   = toDateTime(_endTime);
-      final id      = 'entry_${DateTime.now().millisecondsSinceEpoch}';
 
-      final entry = PlannerModel(
-        id:         id,
-        title:      _titleCtrl.text.trim(),
-        startTime:  startDt,
-        endTime:    endDt,
-        isNotified: _notifyMe,
-      );
-
-      ref.read(plannerProvider.notifier).addEntry(entry);
+      // ── FIX 3: Branch code paths dynamically between Edit and Create actions ──
+      if (widget.initialEntry != null) {
+        // Edit Mode: Update properties while retaining task ID key metrics
+        final updatedEntry = widget.initialEntry!.copyWith(
+          title:          _titleCtrl.text.trim(),
+          startTime:      startDt,
+          endTime:        endDt,
+          isNotified:     _notifyMe,
+          repeatInterval: _repeatInterval,
+          customInterval: _customInterval,
+        );
+        ref.read(plannerProvider.notifier).updateEntry(updatedEntry);
+      } else {
+        // Create Mode: Establish new ID and push directly into list notifier
+        final id = 'entry_${DateTime.now().millisecondsSinceEpoch}';
+        final entry = PlannerModel(
+          id:             id,
+          title:          _titleCtrl.text.trim(),
+          startTime:      startDt,
+          endTime:        endDt,
+          isNotified:     _notifyMe,
+          repeatInterval: _repeatInterval,
+          customInterval: _customInterval,
+        );
+        ref.read(plannerProvider.notifier).addEntry(entry);
+      }
 
       if (_notifyMe) {
         unawaited(
           NotificationService.instance.scheduleNotification(
-            id:            entry.id.hashCode,
+            id:            widget.initialEntry?.id.hashCode ?? DateTime.now().millisecondsSinceEpoch.hashCode,
             title:         'Cheq Reminder',
-            body:          entry.title,
+            body:          _titleCtrl.text.trim(),
             scheduledTime: startDt,
           ),
         );
@@ -706,7 +877,8 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
       if (mounted) setState(() => _isSaving = false);
     }
   }
-
+  
+  // Your widget build(BuildContext context) structure continues exactly the same underneath...
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -801,6 +973,52 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
               ),
               const SizedBox(height: 12),
 
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color:        cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.sync_rounded,
+                      size:  18,
+                      color: _repeatInterval != RepeatInterval.none ? cs.primary : cs.onSurface.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(width: 10),
+                    Text('Repeat', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500)),
+                    const Spacer(),
+                    DropdownButton<RepeatInterval>(
+                      value: _repeatInterval,
+                      underline: const SizedBox(),
+                      dropdownColor: cs.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(12),
+                      onChanged: (RepeatInterval? newVal) {
+                        if (newVal == null) return;
+                        setState(() => _repeatInterval = newVal);
+                        if (newVal == RepeatInterval.custom) {
+                          _showCustomIntervalDialog();
+                        } else {
+                          _customInterval = null; // Flush remnants out safely
+                        }
+                      },
+                      items: RepeatInterval.values.map((val) {
+                        String display = val.name.toUpperCase();
+                        if (val == RepeatInterval.custom && _customInterval != null) {
+                          display = '${_customInterval!.inDays} DAYS';
+                        }
+                        return DropdownMenuItem(
+                          value: val,
+                          child: Text(display, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: cs.primary)),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+
               // Notification toggle
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -873,29 +1091,37 @@ class _TimeTile extends StatelessWidget {
           children: [
             Icon(Icons.access_time_rounded, size: 16, color: cs.primary),
             const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize:      10,
-                    fontWeight:    FontWeight.w600,
-                    letterSpacing: 0.5,
-                    color:         cs.onSurface.withValues(alpha: 0.45),
+            // Wrap in Flexible to safely handle horizontal layout stretching
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize:      10,
+                      fontWeight:    FontWeight.w600,
+                      letterSpacing: 0.5,
+                      color:         cs.onSurface.withValues(alpha: 0.45),
+                    ),
                   ),
-                ),
-                Text(
-                  time.format(context),
-                  style: TextStyle(
-                    fontSize:   13,
-                    fontWeight: FontWeight.w700,
-                    color:      cs.onPrimaryContainer,
+                  Text(
+                    time.format(context),
+                    maxLines: 1, // Enforces that the time string NEVER wraps to a second line
+                    overflow: TextOverflow.clip, // Prevents truncation strings from rendering
+                    style: TextStyle(
+                      fontSize:   13,
+                      fontWeight: FontWeight.w700,
+                      color:      cs.onPrimaryContainer,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ],
+          ]
         ),
       ),
     );

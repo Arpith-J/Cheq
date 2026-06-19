@@ -1,59 +1,46 @@
-// lib/models/planner_model.dart
+// Ensure this enum is present at the absolute top of the file, outside the class!
+enum RepeatInterval { none, daily, weekly, monthly, custom }
 
 class PlannerModel {
-  final String   id;
-  final String   title;
+  final String id;
+  final String title;
   final DateTime startTime;
   final DateTime endTime;
-  final bool     isNotified;
-  final bool     isDone;      // ← added
+  final bool isDone;
+  final bool isNotified; // Make sure this is present too since your provider uses it!
+  final RepeatInterval repeatInterval;
+  final Duration? customInterval;
 
   const PlannerModel({
     required this.id,
     required this.title,
     required this.startTime,
     required this.endTime,
+    this.isDone = false,
     this.isNotified = false,
-    this.isDone     = false,  // ← added
+    this.repeatInterval = RepeatInterval.none,
+    this.customInterval,
   });
 
   PlannerModel copyWith({
-    String?   id,
-    String?   title,
+    String? id,
+    String? title,
     DateTime? startTime,
     DateTime? endTime,
-    bool?     isNotified,
-    bool?     isDone,         // ← added
+    bool? isDone,
+    bool? isNotified,
+    RepeatInterval? repeatInterval,
+    Duration? customInterval,
   }) {
     return PlannerModel(
-      id:         id         ?? this.id,
-      title:      title      ?? this.title,
-      startTime:  startTime  ?? this.startTime,
-      endTime:    endTime    ?? this.endTime,
+      id: id ?? this.id,
+      title: title ?? this.title,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+      isDone: isDone ?? this.isDone,
       isNotified: isNotified ?? this.isNotified,
-      isDone:     isDone     ?? this.isDone,     // ← added
+      repeatInterval: repeatInterval ?? this.repeatInterval,
+      customInterval: customInterval ?? this.customInterval,
     );
   }
-
-  Map<String, dynamic> toMap() => {
-        'id':         id,
-        'title':      title,
-        'startTime':  startTime.toIso8601String(),
-        'endTime':    endTime.toIso8601String(),
-        'isNotified': isNotified,
-        'isDone':     isDone,                    // ← added
-      };
-
-  factory PlannerModel.fromMap(Map<String, dynamic> map) => PlannerModel(
-        id:         map['id']         as String,
-        title:      map['title']      as String,
-        startTime:  DateTime.parse(map['startTime'] as String),
-        endTime:    DateTime.parse(map['endTime']   as String),
-        isNotified: (map['isNotified'] as bool?) ?? false,
-        isDone:     (map['isDone']     as bool?) ?? false,     // ← added
-      );
-
-  @override
-  String toString() =>
-      'PlannerModel(id: $id, title: $title, startTime: $startTime, endTime: $endTime)';
 }
