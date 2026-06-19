@@ -148,7 +148,8 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
     await db.runTransaction((tx) async {
       final snap = await tx.get(colRef);
       if (!snap.exists) return;
-
+      final data     = snap.data()!;
+      final isTask   = (data['items'] as List<dynamic>).length == 1 && (data['items'] as List<dynamic>).first['text'] == data['title'];
       final rawItems = List<Map<String, dynamic>>.from(
         (snap.data()!['items'] as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)),
       );
@@ -161,7 +162,28 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
       }).toList();
 
       final allDone     = updated.every((item) => item['isDone'] == true);
-      final coinsReward = (snap.data()!['coinsReward'] as int?) ?? 10;
+      int coinIncrement = 0;
+      
+      if (!currentStatus) {
+        // ── Checking an item as DONE ────────────────────────────────────────
+        // Rule: +5 for completing any item (whether it's an independent task or inside a list)
+        coinIncrement += 5;
+        
+        // Rule: If it's a multi-item list and this action completes it, add +10 bonus
+        if (!isTask && allDone) {
+          coinIncrement += 10;
+        }
+      } else {
+        // ── Unchecking an item to UNDONE ─────────────────────────────────────
+        // Rule: Remove 5 coins for unchecking the item
+        coinIncrement -= 5;
+        
+        // Rule: If it was a completed list, strip the 10 coin completion bonus too
+        final wasArchived = data['isArchived'] as bool? ?? false;
+        if (!isTask && wasArchived) {
+          coinIncrement -= 10;
+        }
+      }
 
       tx.update(colRef, {'items': updated});
 
@@ -170,8 +192,16 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
           'isArchived': true,
           'archivedAt': FieldValue.serverTimestamp(), // Track completion time
         });
+      }else{
+        // Restores the card to active states if any single item is unchecked
+        tx.update(colRef, {
+          'isArchived': false,
+          'archivedAt': FieldValue.delete(), // Clears completion time tracking
+        });
+      }
+      if (coinIncrement != 0) {
         tx.update(userRef, {
-          'coins': FieldValue.increment(coinsReward),
+          'coins': FieldValue.increment(coinIncrement),
         });
       }
     });
@@ -193,4 +223,4 @@ extension TodoIndexedMap<T> on List<T> {
       yield f(i++, item);
     }
   }
-}
+} 
