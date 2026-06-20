@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/coins_provider.dart';
+import '../providers/theme_provider.dart';
 import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'rewards_screen.dart';
@@ -57,12 +58,13 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
 
     return Scaffold(
       backgroundColor: cs.surface,
+      drawer: const AppSideDrawer(),
 
       // ── AppBar ─────────────────────────────────────────────────────────
       appBar: AppBar(
         backgroundColor:    cs.surface,
         surfaceTintColor:   Colors.transparent,
-        shadowColor:        cs.shadow.withOpacity(0.08),
+        shadowColor:        cs.shadow.withValues(alpha: 0.08),
         elevation:          0,
         scrolledUnderElevation: 1,
         titleSpacing:       4,
@@ -71,7 +73,18 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
         leading: Padding(
           padding: const EdgeInsets.only(left: 16),
           child: Center(
-            child: _ProfileAvatar(photoUrl: user?.photoURL),
+            child: Builder(
+              builder: (innerContext) {
+                return InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () {
+                    // Open the side window via the local Scaffold drawer handle
+                    Scaffold.of(innerContext).openDrawer();
+                  },
+                  child: _ProfileAvatar(photoUrl: user?.photoURL),
+                );
+              },
+            ),
           ),
         ),
         leadingWidth: 56,
@@ -101,7 +114,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            error: (_, __) => const Icon(Icons.error_outline, color: Colors.red),
+            error: (_, _) => const Icon(Icons.error_outline, color: Colors.red),
           ),
           const SizedBox(width: 16),
         ],
@@ -135,6 +148,67 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   }
 }
 
+class AppSideDrawer extends ConsumerWidget {
+  const AppSideDrawer({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final isDarkMode = themeMode == ThemeMode.dark;
+    final user = FirebaseAuth.instance.currentUser;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Drawer(
+      backgroundColor: cs.surface,
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // Sleek Material 3 Drawer User Profile Header Layout
+          UserAccountsDrawerHeader(
+            decoration: BoxDecoration(
+              color: cs.primaryContainer.withValues(alpha: 0.4),
+            ),
+            currentAccountPicture: _ProfileAvatar(photoUrl: user?.photoURL),
+            accountName: Text(
+              user?.displayName ?? 'Cheq User',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            accountEmail: Text(
+              user?.email ?? '',
+              style: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
+            ),
+          ),
+          
+          // ── THEME TOGGLE LIST TILE ──
+          ListTile(
+            leading: Icon(
+              isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+              color: cs.primary,
+            ),
+            title: Text(
+              "Dark Mode",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface,
+              ),
+            ),
+            trailing: Switch(
+              value: isDarkMode,
+              activeColor: cs.primary,
+              onChanged: (value) {
+                ref.read(themeModeProvider.notifier).toggleTheme();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 // ---------------------------------------------------------------------------
 // _ProfileAvatar
 // ---------------------------------------------------------------------------
@@ -166,7 +240,7 @@ class _ProfileAvatar extends StatelessWidget {
           height: 36,
           fit:    BoxFit.cover,
           // Graceful fallback if the Google CDN photo fails to load
-          errorBuilder: (_, __, ___) => Icon(
+          errorBuilder: (_, _, _) => Icon(
             Icons.person_rounded,
             size:  20,
             color: cs.primary,
@@ -195,19 +269,31 @@ class _CoinPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Dynamic background color mapping based on active theme brightness
+    final containerBg = isDark 
+        ? const Color(0xFFFFF8E1).withValues(alpha: 0.12)  // Translucent glowing golden tint for dark mode
+        : const Color(0xFFFFF8E1);                         // Flat warm amber surface for light mode
+
+    final textAndIconColor = isDark
+        ? const Color(0xFFFFD54F)  // Vibrant amber-gold for text readability in dark mode
+        : const Color(0xFF6D4C00);  // Deep amber-brown for strong contrast in light mode
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),           // warm amber surface
+        color: containerBg,           // warm amber surface
         borderRadius: BorderRadius.circular(999), // perfect capsule
         border: Border.all(
-          color: const Color(0xFFFFD54F).withOpacity(0.55),
+          color: const Color(0xFFFFD54F).withValues(alpha: isDark? 0.35: 0.55),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color:      const Color(0xFFFFD54F).withOpacity(0.22),
-            blurRadius: 8,
+            color:      const Color(0xFFFFD54F).withValues(alpha: isDark ? 0.15 : 0.22),
+            blurRadius: isDark ? 12 : 8,
             offset:     const Offset(0, 2),
           ),
         ],
@@ -216,10 +302,10 @@ class _CoinPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Icon(
+          Icon(
             Icons.monetization_on_rounded,
             size:  18,
-            color: Color(0xFFFFA000), // amber gold
+            color: textAndIconColor,
           ),
           const SizedBox(width: 5),
           AnimatedSwitcher(
@@ -237,10 +323,10 @@ class _CoinPill extends StatelessWidget {
             child: Text(
               _format(coinCount),
               key: ValueKey(coinCount),            // triggers AnimatedSwitcher
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize:      14,
                 fontWeight:    FontWeight.w700,
-                color:         Color(0xFF6D4C00),  // deep amber-brown
+                color:         textAndIconColor,  // deep amber-brown
                 letterSpacing: 0.2,
               ),
             ),
