@@ -10,7 +10,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' hide RepeatInterval;
+import 'package:timezone/data/latest_10y.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_timezone/flutter_timezone.dart';
 
 import '../models/planner_model.dart';
 import '../providers/planner_provider.dart';
@@ -33,6 +35,22 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
 
+    tz.initializeTimeZones();
+    try {
+      // 2. Query the native hardware architecture string (e.g., 'Asia/Kolkata')
+      final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
+      final String timeZoneName = timeZoneInfo.identifier;
+      // 3. Bind the local engine reference securely
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
+    } catch (_) {
+      // Fallback baseline parameter to prevent runtime crashes if location fails
+      tz.setLocalLocation(tz.getLocation('Etc/UTC'));
+    }
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+        
     // v20+: initialize() now takes named parameter `settings`
     await _plugin.initialize(
       settings: const InitializationSettings(
@@ -69,9 +87,7 @@ class NotificationService {
         presentSound: true,
       ),
     );
-
-    // v20+: zonedSchedule() now takes ALL named params.
-    // v19+: uiLocalNotificationDateInterpretation is REMOVED entirely.
+    print("🔔 Scheduling notification '$title' target: ${tz.TZDateTime.from(scheduledTime, tz.local)}");
     await _plugin.zonedSchedule(
       id:                  id,
       title:               title,

@@ -57,22 +57,24 @@ class DefaultFirebaseOptions {
     projectId: 'cheq-app-prod-a8e01',
     storageBucket: 'cheq-app-prod-a8e01.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyATApKkZaD64FYBZ4ncP2Rr1mRwPpcN1K4',
     appId: '1:516273499737:ios:5bd7c0766e1d66d6ab0b48',
     messagingSenderId: '516273499737',
     projectId: 'cheq-app-prod-a8e01',
     storageBucket: 'cheq-app-prod-a8e01.firebasestorage.app',
+    androidClientId: '516273499737-lnkerp90tpcqaetb5mvjpf7fslnbj3ku.apps.googleusercontent.com',
+    iosClientId: '516273499737-u0jatb93ukc7i659oa0qnvmbsin1lrag.apps.googleusercontent.com',
     iosBundleId: 'com.example.cheq',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyATApKkZaD64FYBZ4ncP2Rr1mRwPpcN1K4',
     appId: '1:516273499737:ios:5bd7c0766e1d66d6ab0b48',
     messagingSenderId: '516273499737',
     projectId: 'cheq-app-prod-a8e01',
     storageBucket: 'cheq-app-prod-a8e01.firebasestorage.app',
+    androidClientId: '516273499737-lnkerp90tpcqaetb5mvjpf7fslnbj3ku.apps.googleusercontent.com',
+    iosClientId: '516273499737-u0jatb93ukc7i659oa0qnvmbsin1lrag.apps.googleusercontent.com',
     iosBundleId: 'com.example.cheq',
   );
 
