@@ -9,19 +9,12 @@ import 'package:cheq/screens/daily_planner_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    // 2. Run initializations concurrently with a global 6-second timeout curtain
     await Future.wait([
       Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
       NotificationService.instance.initialize(),
-    ]).timeout(
-      const Duration(seconds: 6),
-      onTimeout: () {
-        print("⚠️ Core services initialization took too long. Proceeding to UI...");
-        return []; // Returns an empty list to satisfy Future.wait structure
-      },
-    );
+    ]).timeout(const Duration(seconds: 6));
   } catch (e) {
-    print("❌ Critical Initialization Exception caught: $e");
+    debugPrint("Core initialization exception or timeout caught: $e");
   }
   // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   // await NotificationService.instance.initialize();

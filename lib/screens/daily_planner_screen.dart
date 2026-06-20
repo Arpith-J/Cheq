@@ -87,8 +87,7 @@ class NotificationService {
         presentSound: true,
       ),
     );
-    print("🔔 Scheduling notification '$title' target: ${tz.TZDateTime.from(scheduledTime, tz.local)}");
-    await _plugin.zonedSchedule(
+      await _plugin.zonedSchedule(
       id:                  id,
       title:               title,
       body:                body,
