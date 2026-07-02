@@ -1,5 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
+import '../services/firestore_service.dart';
+
+final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>((ref) {
+  return FirestoreService.instance.streamPlannerEntries();
+});
 
 // ── CORE STATE MANAGEMENT NOTIFIER ───────────────────────────────────────────
 class PlannerNotifier extends Notifier<List<PlannerModel>> {
@@ -42,27 +47,21 @@ class PlannerForDateNotifier extends Notifier<List<PlannerModel>> {
   @override
   List<PlannerModel> build() {
     final targetDate = DateTime(targetDateRaw.year, targetDateRaw.month, targetDateRaw.day);
-    final allEntries = ref.watch(plannerProvider);
+    final asyncEntries = ref.watch(firestorePlannerStreamProvider);
+    final allEntries = asyncEntries.value ?? [];
 
     return allEntries.where((entry) {
       final taskDate = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
-
-      // 1. If it's the exact day the task was created, always show it
+      
       if (taskDate.isAtSameMomentAs(targetDate)) return true;
-
-      // 2. Do not show tasks scheduled to occur in the future relative to the selected day
       if (taskDate.isAfter(targetDate)) return false;
 
-      // 3. Evaluate matching metrics based on the repeat intervals
       switch (entry.repeatInterval) {
         case RepeatInterval.none:
           return false;
-
         case RepeatInterval.daily:
           return true; // Appears every day after creation
-
         case RepeatInterval.weekly:
-          // Appears if it falls on the exact same day of the week (e.g., every Monday)
           return entry.startTime.weekday == targetDate.weekday;
 
         case RepeatInterval.monthly:
@@ -71,7 +70,6 @@ class PlannerForDateNotifier extends Notifier<List<PlannerModel>> {
 
         case RepeatInterval.custom:
           if (entry.customInterval == null) return false;
-          // Calculate if the duration delta between days is perfectly divisible by the custom interval step
           final difference = targetDate.difference(taskDate).inDays;
           final stepInDays = entry.customInterval!.inDays;
           return stepInDays > 0 && (difference % stepInDays == 0);

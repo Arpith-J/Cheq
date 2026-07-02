@@ -198,7 +198,7 @@ class AppSideDrawer extends ConsumerWidget {
             ),
             trailing: Switch(
               value: isDarkMode,
-              activeColor: cs.primary,
+              activeThumbColor: cs.primary,
               onChanged: (value) {
                 ref.read(themeModeProvider.notifier).toggleTheme();
               },

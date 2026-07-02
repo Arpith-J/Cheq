@@ -39,6 +39,7 @@ class TodoCollection {
   final String id;
   final String title;
   final DateTime createdAt;
+  final DateTime? archivedAt;
   final bool isArchived;
   final List<TodoItem> items;
   final int coinsReward;
@@ -47,6 +48,7 @@ class TodoCollection {
     required this.id,
     required this.title,
     required this.createdAt,
+    this.archivedAt,
     required this.isArchived,
     required this.items,
     required this.coinsReward,
@@ -63,6 +65,7 @@ class TodoCollection {
       id:          doc.id,
       title:       data['title'] as String? ?? '',
       createdAt:   (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      archivedAt:  (data['archivedAt'] as Timestamp?)?.toDate(),  
       isArchived:  (data['isArchived'] as bool?) ?? false,
       items:       rawItems
           .map((e) => TodoItem.fromMap(e as Map<String, dynamic>))
@@ -100,6 +103,21 @@ final todoCollectionsProvider = StreamProvider<List<TodoCollection>>((ref) {
       .orderBy('createdAt', descending: true)
       .snapshots()
       .map((snap) => snap.docs.map(TodoCollection.fromDoc).toList());
+});
+
+final completedTodoCollectionsProvider = Provider<List<TodoCollection>>((ref) {
+  final asyncCollections = ref.watch(todoCollectionsProvider);
+  final collections = asyncCollections.value ?? [];
+
+  final today = DateTime.now();
+  final threeDaysAgo = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 3));
+
+  return collections.where((col) {
+    if (!col.isArchived) return false; 
+    if (col.archivedAt == null) return false;
+
+    return col.archivedAt!.isAfter(threeDaysAgo);
+  }).toList();
 });
 
 // ---------------------------------------------------------------------------

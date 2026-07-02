@@ -16,6 +16,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 
 import '../models/planner_model.dart';
 import '../providers/planner_provider.dart';
+import '../services/firestore_service.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 // NOTIFICATION SERVICE
@@ -136,14 +137,18 @@ class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
   List<PlannerModel> build() {
     // ref.watch behaves identically inside a Notifier's build method
     final day     = ref.watch(selectedDayProvider);
-    final entries = ref.watch(plannerProvider);
-    
-    return entries
-        .where((e) =>
-            e.startTime.year  == day.year &&
-            e.startTime.month == day.month &&
-            e.startTime.day   == day.day)
-        .toList()
+    final asyncEntries = ref.watch(firestorePlannerStreamProvider);
+    final entries = asyncEntries.value ?? [];
+    final now     = DateTime.now();
+    final today   = DateTime(now.year, now.month, now.day);
+    return entries.where((e) {
+      final taskDay = DateTime(e.startTime.year, e.startTime.month, e.startTime.day);
+      if (taskDay == day) return true;
+      if (day == today && taskDay.isBefore(today) && !e.isDone) {
+        return true;
+      }
+      return false;
+    }).toList()
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
   }
 }
@@ -227,15 +232,34 @@ class DailyPlannerScreen extends ConsumerWidget {
 // WEEK HEADER
 // ════════════════════════════════════════════════════════════════════════════
 
-class _WeekHeader extends ConsumerWidget {
+class _WeekHeader extends ConsumerStatefulWidget {
   const _WeekHeader();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_WeekHeader> createState() => _WeekHeaderState();
+}
+
+class _WeekHeaderState extends ConsumerState<_WeekHeader> {
+  late PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Start at index 1 (the active current week container viewport slot)
+    _pageController = PageController(initialPage: 1);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final selected = ref.watch(selectedDayProvider);
     final theme    = Theme.of(context);
     final cs       = theme.colorScheme;
-    final weekDays = _buildWeek(selected);
 
     return Container(
       color:   cs.surface,
@@ -243,6 +267,7 @@ class _WeekHeader extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header Row: Month Name, Year and Calendar Icon Picker Trigger
           Row(
             children: [
               Text(
@@ -254,65 +279,128 @@ class _WeekHeader extends ConsumerWidget {
                 ),
               ),
               const Spacer(),
+              if (!_sameDay(selected, DateTime.now()))
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      backgroundColor: cs.primaryContainer.withValues(alpha: 0.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    onPressed: () {
+                      final today = DateTime.now();
+                      
+                      // 1. Instantly reset your global active day state back to today
+                      ref.read(selectedDayProvider.notifier).changeDay(today);
+                      
+                      // 2. Snap the swiping PageView viewport back to the center index
+                      _pageController.jumpToPage(1);
+                    },
+                    icon: Icon(Icons.today_rounded, size: 16, color: cs.onPrimaryContainer),
+                    label: Text(
+                      'Today',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: cs.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                ),
               _CalendarPickerButton(selected: selected),
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: weekDays.map((day) {
-              final isSelected = _sameDay(day, selected);
-              final isToday    = _sameDay(day, DateTime.now());
-              return GestureDetector(
-                onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
-                child: AnimatedContainer(
-                  duration:    const Duration(milliseconds: 200),
-                  curve:       Curves.easeOutCubic,
-                  width:       40,
-                  height:      60,
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? cs.primary
-                        : isToday
-                            ? cs.primaryContainer
-                            : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _weekdayShort(day),
-                        style: TextStyle(
-                          fontSize:      11,
-                          fontWeight:    FontWeight.w600,
-                          letterSpacing: 0.3,
+
+          // ── 🌟 SWIPEABLE WEEKLY PAGEVIEW VIEWPORT SLIDER ───────────────────
+          SizedBox(
+            height: 64, // Bounds the vertical constraints of your date items safely
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: 3, // 0: Previous Week, 1: Active Week, 2: Next Week
+              onPageChanged: (int pageIndex) {
+                if (pageIndex == 1) return; // Unchanged view block threshold
+
+                // Calculate week offset step distance transformation multiplier
+                final weekOffset = pageIndex == 2 ? 7 : -7;
+                final targetDay = selected.add(Duration(days: weekOffset));
+
+                // 1. Shift your global provider memory array focus pointer by a week
+                ref.read(selectedDayProvider.notifier).changeDay(targetDay);
+
+                // 2. Snap the viewport tracking layout back to the base matrix instantly
+                _pageController.jumpToPage(1);
+              },
+              itemBuilder: (context, pageOffsetIndex) {
+                // Shift week calculations relative to index 1
+                final weekShiftDays = (pageOffsetIndex - 1) * 7;
+                final targetCalculatedDay = selected.add(Duration(days: weekShiftDays));
+                final weekDays = _buildWeek(targetCalculatedDay);
+
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: weekDays.map((day) {
+                    final isSelected = _sameDay(day, selected);
+                    final isToday    = _sameDay(day, DateTime.now());
+                    
+                    return GestureDetector(
+                      onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
+                      child: AnimatedContainer(
+                        duration:     const Duration(milliseconds: 200),
+                        curve:        Curves.easeOutCubic,
+                        width:        40,
+                        height:       60,
+                        decoration: BoxDecoration(
                           color: isSelected
-                              ? cs.onPrimary
+                              ? cs.primary
                               : isToday
-                                  ? cs.onPrimaryContainer
-                                  : cs.onSurface.withValues(alpha: 0.55),
+                                  ? cs.primaryContainer
+                                  : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _weekdayShort(day),
+                              style: TextStyle(
+                                fontSize:      11,
+                                fontWeight:    FontWeight.w600,
+                                letterSpacing: 0.3,
+                                color: isSelected
+                                    ? cs.onPrimary
+                                    : isToday
+                                        ? cs.onPrimaryContainer
+                                        : cs.onSurface.withValues(alpha: 0.55),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${day.day}',
+                              style: TextStyle(
+                                fontSize:   16,
+                                fontWeight: FontWeight.w700,
+                                color: isSelected
+                                    ? cs.onPrimary
+                                    : isToday
+                                        ? cs.onPrimaryContainer
+                                        : cs.onSurface,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${day.day}',
-                        style: TextStyle(
-                          fontSize:   16,
-                          fontWeight: FontWeight.w700,
-                          color: isSelected
-                              ? cs.onPrimary
-                              : isToday
-                                  ? cs.onPrimaryContainer
-                                  : cs.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
           ),
+          // ───────────────────────────────────────────────────────────────────
+          
           const SizedBox(height: 12),
           Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.5)),
         ],
@@ -474,7 +562,6 @@ class _TaskRowState extends ConsumerState<_TaskRow>
   Widget build(BuildContext context) {
     final theme    = Theme.of(context);
     final cs       = theme.colorScheme;
-    final notifier = ref.read(plannerProvider.notifier);
     final entry    = widget.entry;
 
     return Dismissible(
@@ -490,7 +577,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
         ),
         child: Icon(Icons.delete_outline_rounded, color: cs.onErrorContainer),
       ),
-      onDismissed: (_) => notifier.removeEntry(entry.id),
+      onDismissed: (_) async {await FirestoreService.instance.deleteTask(entry.id);},
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
@@ -505,7 +592,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
           onLongPress: () async {
             final confirmed = await _showDeleteConfirmDialog(context);
             if (confirmed && mounted) {
-                ref.read(plannerProvider.notifier).removeEntry(entry.id);
+                await FirestoreService.instance.deleteTask(entry.id);
             }
           },  
           // ── FIX 3: Wrap inside AnimatedSize for smooth resizing animations ──
@@ -591,7 +678,13 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                                 height: 24,
                                 child: Checkbox(
                                   value:     entry.isDone,
-                                  onChanged: (_) => notifier.toggleDone(entry.id),
+                                  onChanged: (bool? isChecked) async {
+                                              // 1. Create a modified copy of your entry with the new checkbox status
+                                              final updatedTask = entry.copyWith(isDone: isChecked ?? false);
+                                              
+                                              // 2. Direct the modified blueprint to overwrite the server document record
+                                              await FirestoreService.instance.saveTask(updatedTask);
+                                            },
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(6),
                                   ),
@@ -860,7 +953,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
           repeatInterval: _repeatInterval,
           customInterval: _customInterval,
         );
-        ref.read(plannerProvider.notifier).updateEntry(updatedEntry);
+        await FirestoreService.instance.saveTask(updatedEntry);
       } else {
         // Create Mode: Establish new ID and push directly into list notifier
         final id = 'entry_${DateTime.now().millisecondsSinceEpoch}';
@@ -873,7 +966,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
           repeatInterval: _repeatInterval,
           customInterval: _customInterval,
         );
-        ref.read(plannerProvider.notifier).addEntry(entry);
+        await FirestoreService.instance.saveTask(entry);
       }
 
       if (_notifyMe) {
@@ -925,7 +1018,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
               // Header row
               Row(
                 children: [
-                  Text('New Task',
+                  Text(widget.initialEntry != null ? 'Edit Task' : 'New Task',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w700)),
                   const Spacer(),

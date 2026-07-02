@@ -42,6 +42,7 @@ class TodoListScreen extends ConsumerWidget {
           error:   (e, _) => Center(child: Text('Error: $e')),
           data: (allCollections) {
             final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
             final threeDaysAgo = now.subtract(const Duration(days: 3));
 
             // Filtering Segregation Rules
@@ -49,8 +50,11 @@ class TodoListScreen extends ConsumerWidget {
             final pendingLists = allCollections.where((c) => !c.isArchived && !c.isSingleTask).toList();
             
             // Filters items archived/completed within the past 3 consecutive days
-            final completedItems = allCollections.where((c) => c.isArchived && c.createdAt.isAfter(threeDaysAgo)).toList();
-
+            final completedItems = allCollections.where((c) {
+              if (!c.isArchived) return false;
+              if (c.archivedAt == null) return false;
+              return c.archivedAt!.isAfter(threeDaysAgo) || c.archivedAt!.isAtSameMomentAs(threeDaysAgo);
+            }).toList();
             return TabBarView(
               children: [
                 _buildAllTab(context, ref, pendingTasks, pendingLists),

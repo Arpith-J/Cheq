@@ -12,6 +12,10 @@ service cloud.firestore {
         allow read, delete:   if request.auth != null && request.auth.uid == uid;
         allow create, update: if request.auth != null && request.auth.uid == uid;
       }
+      match /planner/{taskId} {
+        allow read, delete:   if request.auth != null && request.auth.uid == uid;
+        allow create, update: if request.auth != null && request.auth.uid == uid;
+      }
     }
 
   }
