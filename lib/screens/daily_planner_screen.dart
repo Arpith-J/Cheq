@@ -47,11 +47,16 @@ class NotificationService {
       // Fallback baseline parameter to prevent runtime crashes if location fails
       tz.setLocalLocation(tz.getLocation('Etc/UTC'));
     }
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
-        
+    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+
+    if (androidPlugin != null) {
+      // 1. Request standard notification tray permissions (Banners/Badges)
+      await androidPlugin.requestNotificationsPermission();
+      
+      // 2. Request Exact Alarm permissions so 'exactAllowWhileIdle' works perfectly
+      androidPlugin.requestExactAlarmsPermission();
+    }
     // v20+: initialize() now takes named parameter `settings`
     await _plugin.initialize(
       settings: const InitializationSettings(
@@ -564,6 +569,9 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     final cs       = theme.colorScheme;
     final entry    = widget.entry;
 
+    final now = DateTime.now();
+    final isOverdue = !entry.isDone && now.isAfter(entry.startTime);  
+
     return Dismissible(
       key:        Key(entry.id),
       direction:  DismissDirection.endToStart,
@@ -583,7 +591,12 @@ class _TaskRowState extends ConsumerState<_TaskRow>
         decoration: BoxDecoration(
           color:        cs.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+          border: Border.all(
+            color: isOverdue 
+                ? cs.error.withValues(alpha: 0.6) 
+                : cs.outlineVariant.withValues(alpha: 0.5),
+            width: isOverdue ? 1.5 : 1.0,
+          ),
         ),
         // ── FIX 2: Wrap inside InkWell to make the entire task card tappable ──
         child: InkWell(
@@ -636,6 +649,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                       ),
 
                       // ── Core Row Content ───────────────────────────────────
+                      // ── Core Row Content ───────────────────────────────────
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -644,22 +658,49 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                               Expanded(
                                 child: AnimatedBuilder(
                                   animation: _strikeAnim,
-                                  builder: (_, _) => Text(
-                                    entry.title,
-                                    style: TextStyle(
-                                      fontSize:   14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color.lerp(
-                                        cs.onSurface,
-                                        cs.onSurface.withValues(alpha: 0.35),
-                                        _strikeAnim.value,
+                                  builder: (_, _) => Column( // 🌟 CHANGE HERE: Wrap Text inside a Column to hold the pill
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isOverdue) // Inject the capsule badge if the deadline passes
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: cs.errorContainer,
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              'OVERDUE',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: cs.onErrorContainer,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      Text(
+                                        entry.title,
+                                        style: TextStyle(
+                                          fontSize:   14,
+                                          fontWeight: FontWeight.w500,
+                                          // 🌟 CHANGE HERE: Shift title string color to match the urgency
+                                          color: entry.isDone
+                                              ? cs.onSurface.withValues(alpha: 0.35)
+                                              : isOverdue
+                                                  ? cs.error
+                                                  : cs.onSurface,
+                                          decoration: entry.isDone
+                                              ? TextDecoration.lineThrough
+                                              : TextDecoration.none,
+                                          decorationColor: cs.onSurface.withValues(alpha: 0.4),
+                                          decorationThickness: 1.5,
+                                        ),
                                       ),
-                                      decoration: entry.isDone
-                                          ? TextDecoration.lineThrough
-                                          : TextDecoration.none,
-                                      decorationColor: cs.onSurface.withValues(alpha: 0.4),
-                                      decorationThickness: 1.5,
-                                    ),
+                                    ],
                                   ),
                                 ),
                               ),

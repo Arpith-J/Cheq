@@ -161,46 +161,99 @@ class AppSideDrawer extends ConsumerWidget {
 
     return Drawer(
       backgroundColor: cs.surface,
-      child: ListView(
-        padding: EdgeInsets.zero,
+      child: Column( // 🌟 Changed to Column to enable explicit bottom placement logic
         children: [
-          // Sleek Material 3 Drawer User Profile Header Layout
-          UserAccountsDrawerHeader(
-            decoration: BoxDecoration(
-              color: cs.primaryContainer.withValues(alpha: 0.4),
-            ),
-            currentAccountPicture: _ProfileAvatar(photoUrl: user?.photoURL),
-            accountName: Text(
-              user?.displayName ?? 'Cheq User',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-            accountEmail: Text(
-              user?.email ?? '',
-              style: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                // Sleek Material 3 Drawer User Profile Header Layout
+                UserAccountsDrawerHeader(
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer.withValues(alpha: 0.4),
+                  ),
+                  currentAccountPicture: _ProfileAvatar(photoUrl: user?.photoURL),
+                  accountName: Text(
+                    user?.displayName ?? 'Cheq User',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  accountEmail: Text(
+                    user?.email ?? '',
+                    style: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
+                  ),
+                ),
+                
+                // ── THEME TOGGLE LIST TILE ──
+                ListTile(
+                  leading: Icon(
+                    isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                    color: cs.primary,
+                  ),
+                  title: Text(
+                    "Dark Mode",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  trailing: Switch(
+                    value: isDarkMode,
+                    activeThumbColor: cs.primary,
+                    onChanged: (value) {
+                      ref.read(themeModeProvider.notifier).toggleTheme();
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
-          
-          // ── THEME TOGGLE LIST TILE ──
-          ListTile(
-            leading: Icon(
-              isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-              color: cs.primary,
-            ),
-            title: Text(
-              "Dark Mode",
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: cs.onSurface,
+
+          // ── 🌟 LOGOUT ANCHOR BLOCK (Locked at the absolute bottom) ──
+          const Divider(height: 1), // Optional clean subtle divider line
+          SafeArea(
+            top: false, // Ensures accurate screen padding bounds on notched phone devices
+            child: ListTile(
+              leading: Icon(
+                Icons.logout_rounded,
+                color: cs.error,
               ),
-            ),
-            trailing: Switch(
-              value: isDarkMode,
-              activeThumbColor: cs.primary,
-              onChanged: (value) {
-                ref.read(themeModeProvider.notifier).toggleTheme();
+              title: Text(
+                "Sign Out",
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: cs.error,
+                ),
+              ),
+              onTap: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Sign Out'),
+                    content: const Text('Are you sure you want to log out of Cheq?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: cs.error,
+                          foregroundColor: cs.onError,
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Log Out'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (confirm == true && context.mounted) {
+                  Navigator.pop(context); // Close the side drawer
+                  await FirebaseAuth.instance.signOut(); // Terminate user session cloud pipeline
+                }
               },
             ),
           ),
@@ -209,6 +262,7 @@ class AppSideDrawer extends ConsumerWidget {
     );
   }
 }
+
 // ---------------------------------------------------------------------------
 // _ProfileAvatar
 // ---------------------------------------------------------------------------

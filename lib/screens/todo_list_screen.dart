@@ -42,7 +42,7 @@ class TodoListScreen extends ConsumerWidget {
           error:   (e, _) => Center(child: Text('Error: $e')),
           data: (allCollections) {
             final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
+            //final today = DateTime(now.year, now.month, now.day);
             final threeDaysAgo = now.subtract(const Duration(days: 3));
 
             // Filtering Segregation Rules
