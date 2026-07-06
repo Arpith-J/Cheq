@@ -1,4 +1,3 @@
-// Ensure this enum is present at the absolute top of the file, outside the class!
 enum RepeatInterval { none, daily, weekly, monthly, custom }
 
 class PlannerModel {
@@ -7,12 +6,12 @@ class PlannerModel {
   final DateTime startTime;
   final DateTime endTime;
   final bool isDone;
-  final bool isNotified; // Make sure this is present too since your provider uses it!
+  final bool isNotified;
   final RepeatInterval repeatInterval;
   final Duration? customInterval;
 
   const PlannerModel({
-    required this.id, 
+    required this.id,
     required this.title,
     required this.startTime,
     required this.endTime,
@@ -43,6 +42,7 @@ class PlannerModel {
       customInterval: customInterval ?? this.customInterval,
     );
   }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -51,11 +51,12 @@ class PlannerModel {
       'endTime': endTime.toIso8601String(),
       'isDone': isDone,
       'isNotified': isNotified,
-      'repeatInterval': repeatInterval.name, // Converts enum to a string (e.g., 'daily')
-      'customIntervalInSeconds': customInterval?.inSeconds, // Duration mapped as an int
+      'repeatInterval': repeatInterval.name,
+      'customIntervalInSeconds': customInterval?.inSeconds,
     };
   }
-  factory PlannerModel.fromMap(Map<String, dynamic> map) {
+
+  factory PlannerModel.fromMap(Map map) {
     return PlannerModel(
       id: map['id'] ?? '',
       title: map['title'] ?? '',

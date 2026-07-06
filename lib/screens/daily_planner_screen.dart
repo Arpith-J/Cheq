@@ -1,15 +1,9 @@
-// lib/screens/daily_planner_screen.dart
-//
-// Requires (your pubspec.yaml already has these):
-//   flutter_riverpod: ^3.3.2
-//   flutter_local_notifications: ^22.0.1   ← v20+ uses ALL named params
-//   timezone: ^0.11.0
-
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart' hide RepeatInterval;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    hide RepeatInterval;
 import 'package:timezone/data/latest_10y.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -17,13 +11,6 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import '../models/planner_model.dart';
 import '../providers/planner_provider.dart';
 import '../services/firestore_service.dart';
-
-// ════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION SERVICE
-// flutter_local_notifications ≥ 20.0.0 converted ALL positional params
-// to named params in initialize(), show(), zonedSchedule(), cancel() etc.
-// UILocalNotificationDateInterpretation was removed in 19.0.0.
-// ════════════════════════════════════════════════════════════════════════════
 
 class NotificationService {
   NotificationService._();
@@ -38,26 +25,21 @@ class NotificationService {
 
     tz.initializeTimeZones();
     try {
-      // 2. Query the native hardware architecture string (e.g., 'Asia/Kolkata')
       final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
       final String timeZoneName = timeZoneInfo.identifier;
-      // 3. Bind the local engine reference securely
       tz.setLocalLocation(tz.getLocation(timeZoneName));
     } catch (_) {
-      // Fallback baseline parameter to prevent runtime crashes if location fails
       tz.setLocalLocation(tz.getLocation('Etc/UTC'));
     }
+
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidPlugin != null) {
-      // 1. Request standard notification tray permissions (Banners/Badges)
       await androidPlugin.requestNotificationsPermission();
-      
-      // 2. Request Exact Alarm permissions so 'exactAllowWhileIdle' works perfectly
       androidPlugin.requestExactAlarmsPermission();
     }
-    // v20+: initialize() now takes named parameter `settings`
+
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -68,13 +50,14 @@ class NotificationService {
         ),
       ),
     );
+
     _initialized = true;
   }
 
   Future<void> scheduleNotification({
-    required int      id,
-    required String   title,
-    required String   body,
+    required int id,
+    required String title,
+    required String body,
     required DateTime scheduledTime,
   }) async {
     if (!_initialized) await initialize();
@@ -85,7 +68,7 @@ class NotificationService {
         'Daily Planner',
         channelDescription: 'Reminders for your daily planner tasks',
         importance: Importance.high,
-        priority:   Priority.high,
+        priority: Priority.high,
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -93,27 +76,21 @@ class NotificationService {
         presentSound: true,
       ),
     );
-      await _plugin.zonedSchedule(
-      id:                  id,
-      title:               title,
-      body:                body,
-      scheduledDate:       tz.TZDateTime.from(scheduledTime, tz.local),
+
+    await _plugin.zonedSchedule(
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
       notificationDetails: details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
 
-  // v20+: cancel() also uses named param `id`
-  Future<void> cancelNotification(int id) async =>
-      await _plugin.cancel(id: id);
+  Future<void> cancelNotification(int id) async => await _plugin.cancel(id: id);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SCREEN-LOCAL PROVIDERS (Riverpod 3.x Compliant Notifier Patterns)
-// ════════════════════════════════════════════════════════════════════════════
-
-// 1. Replaced StateProvider with the modern NotifierProvider pattern
-final selectedDayProvider = NotifierProvider<SelectedDayNotifier, DateTime>(
+final selectedDayProvider = NotifierProvider(
   SelectedDayNotifier.new,
 );
 
@@ -129,23 +106,20 @@ class SelectedDayNotifier extends Notifier<DateTime> {
   }
 }
 
-// Guard to prevent mock data from being seeded more than once.
-bool _mockSeeded = false;
-
-// 2. Replaced legacy functional 'Provider' with a modern read-only Functional Notifier
-final selectedDayEntriesProvider = NotifierProvider<SelectedDayEntriesNotifier, List<PlannerModel>>(
+final selectedDayEntriesProvider =
+    NotifierProvider<SelectedDayEntriesNotifier, List<PlannerModel>>(
   SelectedDayEntriesNotifier.new,
 );
 
 class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
   @override
   List<PlannerModel> build() {
-    // ref.watch behaves identically inside a Notifier's build method
-    final day     = ref.watch(selectedDayProvider);
+    final day = ref.watch(selectedDayProvider);
     final asyncEntries = ref.watch(firestorePlannerStreamProvider);
     final entries = asyncEntries.value ?? [];
-    final now     = DateTime.now();
-    final today   = DateTime(now.year, now.month, now.day);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
     return entries.where((e) {
       final taskDay = DateTime(e.startTime.year, e.startTime.month, e.startTime.day);
       if (taskDay == day) return true;
@@ -158,50 +132,29 @@ class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// DAILY PLANNER SCREEN
-// ════════════════════════════════════════════════════════════════════════════
-
 class DailyPlannerScreen extends ConsumerWidget {
   const DailyPlannerScreen({super.key});
 
-  void _seedMockData(WidgetRef ref) {
-    if (_mockSeeded) return;
-    _mockSeeded = true;
-
-    final now  = DateTime.now();
-    final base = DateTime(now.year, now.month, now.day);
-
-    DateTime s(int h, int m) => base.add(Duration(hours: h, minutes: m));
-    DateTime e(int h, int m) => base.add(Duration(hours: h, minutes: m));
-
-    final seeds = [
-      PlannerModel(id: 's1', title: 'Morning standup',       startTime: s(9,  0),  endTime: e(9,  30)),
-      PlannerModel(id: 's2', title: 'Review pull requests', startTime: s(10, 30), endTime: e(11, 30)),
-      PlannerModel(id: 's3', title: 'Lunch with the team',  startTime: s(13, 0),  endTime: e(14, 0)),
-      PlannerModel(id: 's4', title: 'Design system review', startTime: s(15, 0),  endTime: e(16, 0)),
-      PlannerModel(id: 's5', title: 'Write release notes',  startTime: s(16, 30), endTime: e(17, 0)),
-      PlannerModel(id: 's6', title: 'Evening workout',       startTime: s(18, 0),  endTime: e(19, 0)),
-    ];
-
-    // ── FIX 1: Wrap the state modification in a PostFrameCallback ───────────
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final seed in seeds) {
-        ref.read(plannerProvider.notifier).addEntry(seed);
-      }
-    });
-    // ────────────────────────────────────────────────────────────────────────
+  void _openAddSheet(BuildContext context, WidgetRef ref,
+      {PlannerModel? initialEntry}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => UncontrolledProviderScope(
+        container: ProviderScope.containerOf(context),
+        child: _AddTaskSheet(initialEntry: initialEntry),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Flipped safe gate runs here, but execution is safely deferred until the frame finishes drawing
-    _seedMockData(ref);
-
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
-      // ── FIX 2: Remove the 'const' keyword here ────────────────────────────
-      // (Column can no longer be const because _TaskFeed internally watches the active providers)
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
@@ -211,31 +164,12 @@ class DailyPlannerScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openAddSheet(context, ref),
-        icon:  const Icon(Icons.add_rounded),
+        icon: const Icon(Icons.add_rounded),
         label: const Text('Add Task'),
       ),
     );
   }
-
-  void _openAddSheet(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context:            context,
-      isScrollControlled: true,
-      useSafeArea:        true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => UncontrolledProviderScope(
-        container: ProviderScope.containerOf(context),
-        child:     const _AddTaskSheet(),
-      ),
-    );
-  }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// WEEK HEADER
-// ════════════════════════════════════════════════════════════════════════════
 
 class _WeekHeader extends ConsumerStatefulWidget {
   const _WeekHeader();
@@ -250,7 +184,6 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
   @override
   void initState() {
     super.initState();
-    // Start at index 1 (the active current week container viewport slot)
     _pageController = PageController(initialPage: 1);
   }
 
@@ -263,23 +196,22 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
   @override
   Widget build(BuildContext context) {
     final selected = ref.watch(selectedDayProvider);
-    final theme    = Theme.of(context);
-    final cs       = theme.colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Container(
-      color:   cs.surface,
+      color: cs.surface,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row: Month Name, Year and Calendar Icon Picker Trigger
           Row(
             children: [
               Text(
                 _monthYear(selected),
                 style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight:    FontWeight.w800,
-                  color:         cs.onSurface,
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
                   letterSpacing: -0.5,
                 ),
               ),
@@ -297,11 +229,7 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
                     ),
                     onPressed: () {
                       final today = DateTime.now();
-                      
-                      // 1. Instantly reset your global active day state back to today
                       ref.read(selectedDayProvider.notifier).changeDay(today);
-                      
-                      // 2. Snap the swiping PageView viewport back to the center index
                       _pageController.jumpToPage(1);
                     },
                     icon: Icon(Icons.today_rounded, size: 16, color: cs.onPrimaryContainer),
@@ -319,28 +247,19 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
             ],
           ),
           const SizedBox(height: 16),
-
-          // ── 🌟 SWIPEABLE WEEKLY PAGEVIEW VIEWPORT SLIDER ───────────────────
           SizedBox(
-            height: 64, // Bounds the vertical constraints of your date items safely
+            height: 64,
             child: PageView.builder(
               controller: _pageController,
-              itemCount: 3, // 0: Previous Week, 1: Active Week, 2: Next Week
+              itemCount: 3,
               onPageChanged: (int pageIndex) {
-                if (pageIndex == 1) return; // Unchanged view block threshold
-
-                // Calculate week offset step distance transformation multiplier
+                if (pageIndex == 1) return;
                 final weekOffset = pageIndex == 2 ? 7 : -7;
                 final targetDay = selected.add(Duration(days: weekOffset));
-
-                // 1. Shift your global provider memory array focus pointer by a week
                 ref.read(selectedDayProvider.notifier).changeDay(targetDay);
-
-                // 2. Snap the viewport tracking layout back to the base matrix instantly
                 _pageController.jumpToPage(1);
               },
               itemBuilder: (context, pageOffsetIndex) {
-                // Shift week calculations relative to index 1
                 final weekShiftDays = (pageOffsetIndex - 1) * 7;
                 final targetCalculatedDay = selected.add(Duration(days: weekShiftDays));
                 final weekDays = _buildWeek(targetCalculatedDay);
@@ -349,15 +268,15 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: weekDays.map((day) {
                     final isSelected = _sameDay(day, selected);
-                    final isToday    = _sameDay(day, DateTime.now());
-                    
+                    final isToday = _sameDay(day, DateTime.now());
+
                     return GestureDetector(
                       onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
                       child: AnimatedContainer(
-                        duration:     const Duration(milliseconds: 200),
-                        curve:        Curves.easeOutCubic,
-                        width:        40,
-                        height:       60,
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOutCubic,
+                        width: 40,
+                        height: 60,
                         decoration: BoxDecoration(
                           color: isSelected
                               ? cs.primary
@@ -372,8 +291,8 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
                             Text(
                               _weekdayShort(day),
                               style: TextStyle(
-                                fontSize:      11,
-                                fontWeight:    FontWeight.w600,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
                                 letterSpacing: 0.3,
                                 color: isSelected
                                     ? cs.onPrimary
@@ -386,7 +305,7 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
                             Text(
                               '${day.day}',
                               style: TextStyle(
-                                fontSize:   16,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w700,
                                 color: isSelected
                                     ? cs.onPrimary
@@ -404,8 +323,6 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
               },
             ),
           ),
-          // ───────────────────────────────────────────────────────────────────
-          
           const SizedBox(height: 12),
           Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.5)),
         ],
@@ -426,16 +343,12 @@ class _WeekHeaderState extends ConsumerState<_WeekHeader> {
 
   String _monthYear(DateTime d) {
     const months = [
-      'January', 'February', 'March',     'April',   'May',      'June',
-      'July',    'August',   'September', 'October', 'November', 'December',
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
     ];
     return '${months[d.month - 1]} ${d.year}';
   }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// CALENDAR PICKER BUTTON
-// ════════════════════════════════════════════════════════════════════════════
 
 class _CalendarPickerButton extends ConsumerWidget {
   const _CalendarPickerButton({required this.selected});
@@ -448,29 +361,25 @@ class _CalendarPickerButton extends ConsumerWidget {
     return IconButton.filledTonal(
       onPressed: () async {
         final picked = await showDatePicker(
-          context:     context,
+          context: context,
           initialDate: selected,
-          firstDate:   DateTime(2020),
-          lastDate:    DateTime(2035),
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2035),
         );
         if (picked != null) {
           ref.read(selectedDayProvider.notifier).changeDay(picked);
         }
       },
-      icon:  const Icon(Icons.calendar_month_rounded, size: 20),
+      icon: const Icon(Icons.calendar_month_rounded, size: 20),
       style: IconButton.styleFrom(
         backgroundColor: cs.primaryContainer,
         foregroundColor: cs.onPrimaryContainer,
-        padding:         const EdgeInsets.all(8),
-        minimumSize:     const Size(36, 36),
+        padding: const EdgeInsets.all(8),
+        minimumSize: const Size(36, 36),
       ),
     );
   }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// TASK FEED
-// ════════════════════════════════════════════════════════════════════════════
 
 class _TaskFeed extends ConsumerWidget {
   const _TaskFeed();
@@ -480,16 +389,12 @@ class _TaskFeed extends ConsumerWidget {
     final entries = ref.watch(selectedDayEntriesProvider);
     if (entries.isEmpty) return const _EmptyDay();
     return ListView.builder(
-      padding:     const EdgeInsets.fromLTRB(16, 20, 16, 100),
-      itemCount:   entries.length,
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
+      itemCount: entries.length,
       itemBuilder: (_, i) => _TaskRow(entry: entries[i]),
     );
   }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// TASK ROW
-// ════════════════════════════════════════════════════════════════════════════
 
 class _TaskRow extends ConsumerStatefulWidget {
   const _TaskRow({required this.entry});
@@ -503,18 +408,16 @@ class _TaskRow extends ConsumerStatefulWidget {
 class _TaskRowState extends ConsumerState<_TaskRow>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double>    _strikeAnim;
-  
-  // ── FIX 1: Add the expanded layout visibility state tracking flag ───────
-  bool _isExpanded = false; 
+  late final Animation _strikeAnim;
+  bool _isExpanded = false;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      vsync:    this,
+      vsync: this,
       duration: const Duration(milliseconds: 350),
-      value:    widget.entry.isDone ? 1.0 : 0.0,
+      value: widget.entry.isDone ? 1.0 : 0.0,
     );
     _strikeAnim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
   }
@@ -533,7 +436,6 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     super.dispose();
   }
 
-  // Helper method to format standard time strings cleanly for the details sub-panel
   String _formatTimeString(DateTime dt) {
     final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final minute = dt.minute.toString().padLeft(2, '0');
@@ -542,73 +444,85 @@ class _TaskRowState extends ConsumerState<_TaskRow>
   }
 
   Future<bool> _showDeleteConfirmDialog(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
-  return await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Delete Task', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          content: const Text('Are you sure you want to permanently delete this task?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: cs.error),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
-}
+    final cs = Theme.of(context).colorScheme;
+    return await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Task',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            content:
+                const Text('Are you sure you want to permanently delete this task?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: cs.error),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme    = Theme.of(context);
-    final cs       = theme.colorScheme;
-    final entry    = widget.entry;
-
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final entry = widget.entry;
     final now = DateTime.now();
-    final isOverdue = !entry.isDone && now.isAfter(entry.startTime);  
+    final taskDay = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
+    final today = DateTime(now.year, now.month, now.day);
+
+    final isOverdue = !entry.isDone && 
+        (taskDay.isBefore(today) || (taskDay.isAtSameMomentAs(today) && now.isAfter(entry.endTime)));
 
     return Dismissible(
-      key:        Key(entry.id),
-      direction:  DismissDirection.endToStart,
+      key: Key(entry.id),
+      direction: DismissDirection.endToStart,
       background: Container(
-        alignment:  Alignment.centerRight,
-        padding:    const EdgeInsets.only(right: 20),
-        margin:     const EdgeInsets.only(bottom: 8),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          color:        cs.errorContainer,
+          color: cs.errorContainer,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Icon(Icons.delete_outline_rounded, color: cs.onErrorContainer),
       ),
-      onDismissed: (_) async {await FirestoreService.instance.deleteTask(entry.id);},
+      confirmDismiss: (direction) async {
+        try {
+          await FirestoreService.instance.deleteTask(entry.id);
+          return true; // Confirms removal to the animation tree safely
+        } catch (e) {
+          debugPrint("Error dismissing: $e");
+          return false;
+        }
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          color:        cs.surface,
+          color: cs.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isOverdue 
-                ? cs.error.withValues(alpha: 0.6) 
+            color: isOverdue
+                ? cs.error.withValues(alpha: 0.6)
                 : cs.outlineVariant.withValues(alpha: 0.5),
             width: isOverdue ? 1.5 : 1.0,
           ),
         ),
-        // ── FIX 2: Wrap inside InkWell to make the entire task card tappable ──
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: () => setState(() => _isExpanded = !_isExpanded),
           onLongPress: () async {
             final confirmed = await _showDeleteConfirmDialog(context);
             if (confirmed && mounted) {
-                await FirestoreService.instance.deleteTask(entry.id);
+              await FirestoreService.instance.deleteTask(entry.id);
             }
-          },  
-          // ── FIX 3: Wrap inside AnimatedSize for smooth resizing animations ──
+          },
           child: AnimatedSize(
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeInOut,
@@ -620,14 +534,14 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // ── Time Gutter ────────────────────────────────────────
                       Container(
-                        width: 82, // Explicit width gives "12:00 PM" plenty of horizontal room
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-                        alignment: Alignment.center, // Centers the time text inside its gutter space
+                        width: 82,
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 4),
+                        alignment: Alignment.center,
                         child: Text(
-                          _formatTimeString(entry.startTime), // Single string output: "09:00 AM"
-                          maxLines: 1, // Strictly forbids vertical wrapping
+                          _formatTimeString(entry.startTime),
+                          maxLines: 1,
                           softWrap: false,
                           style: TextStyle(
                             fontSize: 12,
@@ -638,38 +552,37 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                           ),
                         ),
                       ),
-
-                      // ── Accent Separator Line ──────────────────────────────
                       Container(
-                        width:  1,
+                        width: 1,
                         margin: const EdgeInsets.symmetric(vertical: 10),
-                        color:  entry.isDone
+                        color: entry.isDone
                             ? cs.outlineVariant.withValues(alpha: 0.3)
                             : cs.primary.withValues(alpha: 0.35),
                       ),
-
-                      // ── Core Row Content ───────────────────────────────────
-                      // ── Core Row Content ───────────────────────────────────
                       Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
                           child: Row(
                             children: [
                               Expanded(
                                 child: AnimatedBuilder(
                                   animation: _strikeAnim,
-                                  builder: (_, _) => Column( // 🌟 CHANGE HERE: Wrap Text inside a Column to hold the pill
+                                  builder: (_, _) => Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      if (isOverdue) // Inject the capsule badge if the deadline passes
+                                      if (isOverdue)
                                         Padding(
-                                          padding: const EdgeInsets.only(bottom: 4),
+                                          padding:
+                                              const EdgeInsets.only(bottom: 4),
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: cs.errorContainer,
-                                              borderRadius: BorderRadius.circular(6),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
                                             ),
                                             child: Text(
                                               'OVERDUE',
@@ -685,9 +598,8 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                                       Text(
                                         entry.title,
                                         style: TextStyle(
-                                          fontSize:   14,
+                                          fontSize: 14,
                                           fontWeight: FontWeight.w500,
-                                          // 🌟 CHANGE HERE: Shift title string color to match the urgency
                                           color: entry.isDone
                                               ? cs.onSurface.withValues(alpha: 0.35)
                                               : isOverdue
@@ -696,7 +608,8 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                                           decoration: entry.isDone
                                               ? TextDecoration.lineThrough
                                               : TextDecoration.none,
-                                          decorationColor: cs.onSurface.withValues(alpha: 0.4),
+                                          decorationColor:
+                                              cs.onSurface.withValues(alpha: 0.4),
                                           decorationThickness: 1.5,
                                         ),
                                       ),
@@ -710,26 +623,26 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                                   padding: const EdgeInsets.only(right: 8),
                                   child: Icon(
                                     Icons.notifications_active_rounded,
-                                    size:  14,
+                                    size: 14,
                                     color: cs.primary.withValues(alpha: 0.7),
                                   ),
                                 ),
                               SizedBox(
-                                width:  24,
+                                width: 24,
                                 height: 24,
                                 child: Checkbox(
-                                  value:     entry.isDone,
+                                  value: entry.isDone,
                                   onChanged: (bool? isChecked) async {
-                                              // 1. Create a modified copy of your entry with the new checkbox status
-                                              final updatedTask = entry.copyWith(isDone: isChecked ?? false);
-                                              
-                                              // 2. Direct the modified blueprint to overwrite the server document record
-                                              await FirestoreService.instance.saveTask(updatedTask);
-                                            },
+                                    final updatedTask =
+                                        entry.copyWith(isDone: isChecked ?? false);
+                                    await FirestoreService.instance
+                                        .saveTask(updatedTask);
+                                  },
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(6),
                                   ),
-                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
                               ),
                             ],
@@ -739,23 +652,24 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                     ],
                   ),
                 ),
-                
-                // ── FIX 4: The Drop-down Details Panel (Reveals when tapped) ──
                 if (_isExpanded)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(79, 0, 14, 14), // Inline alignment past the gutter line
+                    padding: const EdgeInsets.fromLTRB(79, 0, 14, 14),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
+                        Divider(
+                            height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
                         const SizedBox(height: 10),
                         Row(
                           children: [
-                            Icon(Icons.access_time_rounded, size: 14, color: cs.onSurfaceVariant),
+                            Icon(Icons.access_time_rounded,
+                                size: 14, color: cs.onSurfaceVariant),
                             const SizedBox(width: 6),
                             Text(
                               'Duration: ${_formatTimeString(entry.startTime)} - ${_formatTimeString(entry.endTime)}',
-                              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                              style: TextStyle(
+                                  fontSize: 12, color: cs.onSurfaceVariant),
                             ),
                           ],
                         ),
@@ -766,32 +680,37 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                             const SizedBox(width: 6),
                             Text(
                               'Repeats: ${entry.repeatInterval.name.toUpperCase()}',
-                              style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: cs.primary,
+                                  fontWeight: FontWeight.w600),
                             ),
                             const Spacer(),
-                            // ── Future Edit Action Button Stub ──────────────
                             TextButton.icon(
                               style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
                               onPressed: () {
-                                  showModalBottomSheet(
-                                  context:            context,
+                                showModalBottomSheet(
+                                  context: context,
                                   isScrollControlled: true,
-                                  useSafeArea:        true,
+                                  useSafeArea: true,
                                   shape: const RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                    borderRadius:
+                                        BorderRadius.vertical(top: Radius.circular(24)),
                                   ),
                                   builder: (_) => UncontrolledProviderScope(
                                     container: ProviderScope.containerOf(context),
-                                    child: _AddTaskSheet(initialEntry: entry), // PASSING DATA HERE
+                                    child: _AddTaskSheet(initialEntry: entry),
                                   ),
                                 );
                               },
                               icon: const Icon(Icons.edit_rounded, size: 14),
-                              label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                              label:
+                                  const Text('Edit', style: TextStyle(fontSize: 12)),
                             ),
                           ],
                         ),
@@ -805,17 +724,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
       ),
     );
   }
-
-  // String _formatHour(DateTime dt) =>
-  //     '${dt.hour % 12 == 0 ? 12 : dt.hour % 12}';
-
-  // String _formatMinute(DateTime dt) =>
-  //     '${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// EMPTY STATE
-// ════════════════════════════════════════════════════════════════════════════
 
 class _EmptyDay extends StatelessWidget {
   const _EmptyDay();
@@ -833,16 +742,16 @@ class _EmptyDay extends StatelessWidget {
           Text(
             'Nothing scheduled',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color:      cs.onSurface.withValues(alpha: 0.4),
-              fontWeight: FontWeight.w600,
-            ),
+                  color: cs.onSurface.withValues(alpha: 0.4),
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 6),
           Text(
             'Tap the button below to add a task.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withValues(alpha: 0.3),
-            ),
+                  color: cs.onSurface.withValues(alpha: 0.3),
+                ),
           ),
         ],
       ),
@@ -850,14 +759,9 @@ class _EmptyDay extends StatelessWidget {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// ADD TASK SHEET
-// ════════════════════════════════════════════════════════════════════════════
-
 class _AddTaskSheet extends ConsumerStatefulWidget {
-  // ── FIX 1: Add parameter to capture target item for edit workflows ───────
-  final PlannerModel? initialEntry; 
-  
+  final PlannerModel? initialEntry;
+
   const _AddTaskSheet({this.initialEntry});
 
   @override
@@ -865,23 +769,21 @@ class _AddTaskSheet extends ConsumerStatefulWidget {
 }
 
 class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
-  // Use late to safely coordinate constructor assignments inside initState
   late final TextEditingController _titleCtrl;
   final _titleFocus = FocusNode();
 
-  bool      _isSaving      = false;
-  bool      _notifyMe      = false;
+  bool _isSaving = false;
+  bool _notifyMe = false;
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   late RepeatInterval _repeatInterval;
-  Duration?      _customInterval;
+  Duration? _customInterval;
 
   @override
   void initState() {
     super.initState();
     final entry = widget.initialEntry;
 
-    // ── FIX 2: Check for existing task properties to hydrate the form ────────
     _titleCtrl = TextEditingController(text: entry?.title ?? '');
     _notifyMe = entry?.isNotified ?? false;
     _repeatInterval = entry?.repeatInterval ?? RepeatInterval.none;
@@ -893,13 +795,12 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
     } else {
       _startTime = TimeOfDay.now();
       _endTime = TimeOfDay(
-        hour:   (_startTime.hour + 1) % 24,
+        hour: (_startTime.hour + 1) % 24,
         minute: _startTime.minute,
       );
-      // Auto-focus text keyboard ONLY when framing an empty sheet
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _titleFocus.requestFocus(),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _titleFocus.requestFocus();
+      });
     }
   }
 
@@ -912,19 +813,20 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
 
   Future<void> _pickTime({required bool isStart}) async {
     final picked = await showTimePicker(
-      context:     context,
+      context: context,
       initialTime: isStart ? _startTime : _endTime,
     );
     if (picked == null) return;
+
     setState(() {
       if (isStart) {
         _startTime = picked;
         final startMins = picked.hour * 60 + picked.minute;
-        final endMins   = _endTime.hour * 60 + _endTime.minute;
+        final endMins = _endTime.hour * 60 + _endTime.minute;
         if (endMins <= startMins) {
           final advanced = startMins + 60;
           _endTime = TimeOfDay(
-            hour:   (advanced ~/ 60) % 24,
+            hour: (advanced ~/ 60) % 24,
             minute: advanced % 60,
           );
         }
@@ -939,7 +841,8 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
     final steps = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Custom Interval', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        title: const Text('Custom Interval',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         content: TextField(
           controller: ctrl,
           keyboardType: TextInputType.number,
@@ -949,7 +852,10 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())),
             child: const Text('Confirm'),
@@ -957,6 +863,8 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
         ],
       ),
     );
+
+    ctrl.dispose();
 
     if (steps != null && steps > 0) {
       setState(() => _customInterval = Duration(days: steps));
@@ -969,11 +877,13 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
   }
 
   Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty) {
+    if (_isSaving || _titleCtrl.text.trim().isEmpty) {
       _titleFocus.requestFocus();
       return;
     }
+
     setState(() => _isSaving = true);
+
     try {
       final day = ref.read(selectedDayProvider);
 
@@ -981,132 +891,126 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
           DateTime(day.year, day.month, day.day, t.hour, t.minute);
 
       final startDt = toDateTime(_startTime);
-      final endDt   = toDateTime(_endTime);
+      final endDt = toDateTime(_endTime);
 
-      // ── FIX 3: Branch code paths dynamically between Edit and Create actions ──
-      if (widget.initialEntry != null) {
-        // Edit Mode: Update properties while retaining task ID key metrics
-        final updatedEntry = widget.initialEntry!.copyWith(
-          title:          _titleCtrl.text.trim(),
-          startTime:      startDt,
-          endTime:        endDt,
-          isNotified:     _notifyMe,
-          repeatInterval: _repeatInterval,
-          customInterval: _customInterval,
-        );
-        await FirestoreService.instance.saveTask(updatedEntry);
-      } else {
-        // Create Mode: Establish new ID and push directly into list notifier
-        final id = 'entry_${DateTime.now().millisecondsSinceEpoch}';
-        final entry = PlannerModel(
-          id:             id,
-          title:          _titleCtrl.text.trim(),
-          startTime:      startDt,
-          endTime:        endDt,
-          isNotified:     _notifyMe,
-          repeatInterval: _repeatInterval,
-          customInterval: _customInterval,
-        );
-        await FirestoreService.instance.saveTask(entry);
-      }
+      final String targetId = widget.initialEntry?.id ?? 
+          'entry_${DateTime.now().millisecondsSinceEpoch}';
+
+      final entry = PlannerModel(
+        id: targetId,
+        title: _titleCtrl.text.trim(),
+        startTime: startDt,
+        endTime: endDt,
+        isDone: widget.initialEntry?.isDone ?? false,
+        isNotified: _notifyMe,
+        repeatInterval: _repeatInterval,
+        customInterval: _customInterval,
+      );
+
+      await FirestoreService.instance.saveTask(entry);
+
+      // 🌟 FIX: Apply identical 32-bit integer compression constraints
+      final rawDigits = targetId.replaceAll(RegExp(r'[^0-9]'), '');
+      final parsedInt = int.tryParse(rawDigits);
+      
+      final int stableNotificationId = parsedInt != null 
+          ? (parsedInt % 2147483647) 
+          : targetId.hashCode;
+      
+      await NotificationService.instance.cancelNotification(stableNotificationId);
 
       if (_notifyMe) {
         unawaited(
           NotificationService.instance.scheduleNotification(
-            id:            widget.initialEntry?.id.hashCode ?? DateTime.now().millisecondsSinceEpoch.hashCode,
-            title:         'Cheq Reminder',
-            body:          _titleCtrl.text.trim(),
+            id: stableNotificationId,
+            title: 'Moon Reminder',
+            body: _titleCtrl.text.trim(),
             scheduledTime: startDt,
           ),
         );
       }
 
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint("Error inside save calculation routine: $e");
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
-  
-  // Your widget build(BuildContext context) structure continues exactly the same underneath...
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
 
     return Padding(
-      padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
-            mainAxisSize:       MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle bar
               Center(
                 child: Container(
-                  width:  40,
+                  width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color:        cs.outlineVariant,
+                    color: cs.outlineVariant,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Header row
               Row(
                 children: [
-                  Text(widget.initialEntry != null ? 'Edit Task' : 'New Task',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  Text(
+                    widget.initialEntry != null ? 'Edit Task' : 'New Task',
+                    style:
+                        theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
                   const Spacer(),
                   FilledButton(
                     onPressed: _isSaving ? null : _save,
                     child: _isSaving
                         ? const SizedBox(
-                            width:  16,
+                            width: 16,
                             height: 16,
-                            child:  CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text('Save'),
                   ),
                 ],
               ),
               const SizedBox(height: 20),
-
-              // Title
               TextField(
-                controller:         _titleCtrl,
-                focusNode:          _titleFocus,
+                controller: _titleCtrl,
+                focusNode: _titleFocus,
                 textCapitalization: TextCapitalization.sentences,
-                style: theme.textTheme.bodyLarge
-                    ?.copyWith(fontWeight: FontWeight.w500),
+                style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
                 decoration: InputDecoration(
-                  hintText:  'What do you need to do?',
-                  hintStyle: TextStyle(
-                      color: cs.onSurface.withValues(alpha: 0.35)),
-                  filled:         true,
-                  fillColor:      cs.surfaceContainerHigh,
+                  hintText: 'What do you need to do?',
+                  hintStyle: TextStyle(color: cs.onSurface.withValues(alpha: 0.35)),
+                  filled: true,
+                  fillColor: cs.surfaceContainerHigh,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide:  BorderSide.none,
+                    borderSide: BorderSide.none,
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
               ),
               const SizedBox(height: 12),
-
-              // Start + End time pickers
               Row(
                 children: [
                   Expanded(
                     child: _TimeTile(
                       label: 'Start',
-                      time:  _startTime,
+                      time: _startTime,
                       onTap: () => _pickTime(isStart: true),
                     ),
                   ),
@@ -1114,30 +1018,33 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
                   Expanded(
                     child: _TimeTile(
                       label: 'End',
-                      time:  _endTime,
+                      time: _endTime,
                       onTap: () => _pickTime(isStart: false),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 decoration: BoxDecoration(
-                  color:        cs.surfaceContainerHigh,
+                  color: cs.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
                     Icon(
                       Icons.sync_rounded,
-                      size:  18,
-                      color: _repeatInterval != RepeatInterval.none ? cs.primary : cs.onSurface.withValues(alpha: 0.5),
+                      size: 18,
+                      color: _repeatInterval != RepeatInterval.none
+                          ? cs.primary
+                          : cs.onSurface.withValues(alpha: 0.5),
                     ),
                     const SizedBox(width: 10),
-                    Text('Repeat', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500)),
+                    Text('Repeat',
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w500)),
                     const Spacer(),
                     DropdownButton<RepeatInterval>(
                       value: _repeatInterval,
@@ -1150,7 +1057,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
                         if (newVal == RepeatInterval.custom) {
                           _showCustomIntervalDialog();
                         } else {
-                          _customInterval = null; // Flush remnants out safely
+                          _customInterval = null;
                         }
                       },
                       items: RepeatInterval.values.map((val) {
@@ -1160,40 +1067,39 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
                         }
                         return DropdownMenuItem(
                           value: val,
-                          child: Text(display, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: cs.primary)),
+                          child: Text(
+                            display,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
+                          ),
                         );
                       }).toList(),
                     ),
                   ],
                 ),
               ),
-
-              // Notification toggle
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 decoration: BoxDecoration(
-                  color:        cs.surfaceContainerHigh,
+                  color: cs.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      _notifyMe
-                          ? Icons.notifications_active_rounded
-                          : Icons.notifications_none_rounded,
-                      size:  18,
-                      color: _notifyMe
-                          ? cs.primary
-                          : cs.onSurface.withValues(alpha: 0.5),
+                      _notifyMe ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+                      size: 18,
+                      color: _notifyMe ? cs.primary : cs.onSurface.withValues(alpha: 0.5),
                     ),
                     const SizedBox(width: 10),
-                    Text('Remind me',
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w500)),
+                    const Text('Notify me'),
                     const Spacer(),
-                    Switch(
-                      value:     _notifyMe,
+                    Switch.adaptive(
+                      value: _notifyMe,
                       onChanged: (v) => setState(() => _notifyMe = v),
                     ),
                   ],
@@ -1207,10 +1113,6 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// TIME TILE — reusable start/end time picker chip
-// ════════════════════════════════════════════════════════════════════════════
-
 class _TimeTile extends StatelessWidget {
   const _TimeTile({
     required this.label,
@@ -1218,59 +1120,32 @@ class _TimeTile extends StatelessWidget {
     required this.onTap,
   });
 
-  final String       label;
-  final TimeOfDay    time;
+  final String label;
+  final TimeOfDay time;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
+    final text =
+        '${time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod}:${time.minute.toString().padLeft(2, '0')} ${time.period == DayPeriod.am ? 'AM' : 'PM'}';
 
     return InkWell(
-      onTap:        onTap,
+      onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color:        cs.surfaceContainerHigh,
+          color: cs.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(Icons.access_time_rounded, size: 16, color: cs.primary),
-            const SizedBox(width: 8),
-            // Wrap in Flexible to safely handle horizontal layout stretching
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize:      10,
-                      fontWeight:    FontWeight.w600,
-                      letterSpacing: 0.5,
-                      color:         cs.onSurface.withValues(alpha: 0.45),
-                    ),
-                  ),
-                  Text(
-                    time.format(context),
-                    maxLines: 1, // Enforces that the time string NEVER wraps to a second line
-                    overflow: TextOverflow.clip, // Prevents truncation strings from rendering
-                    style: TextStyle(
-                      fontSize:   13,
-                      fontWeight: FontWeight.w700,
-                      color:      cs.onPrimaryContainer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ]
+            Text(label, style: TextStyle(color: cs.onSurfaceVariant)),
+            Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ],
         ),
       ),
     );
