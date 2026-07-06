@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../models/planner_model.dart'; 
-import '../screens/daily_planner_screen.dart'; // 🌟 Required to clear notification alarms
+import 'package:home_widget/home_widget.dart';
+import '../models/planner_model.dart';
+import '../screens/daily_planner_screen.dart';
 import 'home_widget_service.dart';
 
 class FirestoreService {
@@ -18,7 +20,60 @@ class FirestoreService {
     return _db.collection('users').doc(user.uid).collection('planner');
   }
 
-  /// 📤 STREAM: Real-time loop listening for database changes
+  Future<void> syncWidgetChangesToFirestore() async {
+    try {
+      final String? tasksJson =
+          await HomeWidget.getWidgetData<String>('flutter.daily_tasks_key');
+
+      if (tasksJson == null || tasksJson.isEmpty) return;
+
+      final List<dynamic> widgetTasks = jsonDecode(tasksJson);
+      final ref = _plannerRef;
+      if (ref == null) return;
+
+      final snapshot = await ref.get();
+      final currentTasks = snapshot.docs
+          .map((doc) => PlannerModel.fromMap(doc.data()))
+          .toList();
+
+      final Map<String, PlannerModel> taskMap = {
+        for (final task in currentTasks) task.id: task,
+      };
+
+      bool changedAnything = false;
+
+      for (final raw in widgetTasks) {
+        if (raw is! Map<String, dynamic>) continue;
+
+        final String? taskId = raw['id'] as String?;
+        final bool widgetDone = raw['isDone'] as bool? ?? false;
+
+        if (taskId == null) continue;
+
+        final existing = taskMap[taskId];
+        if (existing == null) continue;
+
+        if (existing.isDone != widgetDone) {
+          await ref.doc(taskId).set(
+            existing.copyWith(isDone: widgetDone).toMap(),
+            SetOptions(merge: true),
+          );
+          changedAnything = true;
+        }
+      }
+
+      if (changedAnything) {
+        final refreshed = await ref.get();
+        final refreshedTasks = refreshed.docs
+            .map((doc) => PlannerModel.fromMap(doc.data()))
+            .toList();
+        _processAndSyncWidgets(refreshedTasks);
+      }
+    } catch (e) {
+      debugPrint("Widget sync-back failed: $e");
+    }
+  }
+
   Stream<List<PlannerModel>> streamPlannerEntries() {
     final ref = _plannerRef;
     if (ref == null) return Stream.value([]);
@@ -27,17 +82,7 @@ class FirestoreService {
       final List<PlannerModel> entries = snapshot.docs.map((doc) {
         return PlannerModel.fromMap(doc.data());
       }).toList();
-      
-      final seenTitles = <String>{};
-      for (var entry in List.from(entries)) {
-        if (seenTitles.contains(entry.title)) {
-          // Deletes database clones
-          instance.deleteTask(entry.id);
-        } else {
-          seenTitles.add(entry.title);
-        }
-      }
-      
+            
       _processAndSyncWidgets(entries);
       return entries;
     });

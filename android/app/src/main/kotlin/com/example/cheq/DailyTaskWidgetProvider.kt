@@ -96,7 +96,7 @@ class DailyTaskWidgetProvider : HomeWidgetProvider() {
             }
             views.setRemoteAdapter(R.id.widget_list_view, serviceIntent)
             
-            // 🌟 NATIVE ANDROID MAGIC: Automatically handles the blank state. 
+            // NATIVE ANDROID MAGIC: Automatically handles the blank state. 
             // If the RemoteViewsService returns 0 items, Android natively displays the empty_view.
             views.setEmptyView(R.id.widget_list_view, R.id.empty_view)
             views.setViewVisibility(R.id.widget_list_view, android.view.View.VISIBLE)

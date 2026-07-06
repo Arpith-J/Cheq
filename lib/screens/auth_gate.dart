@@ -156,7 +156,7 @@ class _SignInScreenState extends ConsumerState<_SignInScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'Welcome to Cheq',
+                'Welcome to moon',
                 style: theme.textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: cs.onSurface,

@@ -48,6 +48,7 @@ class WidgetDataProviderFactory(private val context: Context) : RemoteViewsServi
             val title = task.optString("title", "Untitled")
             val isDone = task.optBoolean("isDone", false)
             val time = task.optString("time", "")
+            val date = task.optString("date", "")
 
             views.setTextViewText(R.id.row_check_icon, if (isDone) "✓" else "○")
             views.setTextViewText(R.id.row_task_text, if (time.isNotEmpty()) "$time | $title" else title)
