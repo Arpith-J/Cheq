@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root" android:layout_width="match_parent"
+    android:id="@+id/row_root" 
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:background="#1E1E1E"
-    android:padding="10dp"
+    android:padding="12dp"
     android:gravity="center_vertical">
     
     <TextView
         android:id="@+id/row_check_icon"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
         android:textColor="#BB86FC"
-        android:textSize="16sp"
+        android:textSize="20sp"
         android:gravity="center"
         android:text="○" />
         
@@ -21,6 +22,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="#E0E0E0"
-        android:textSize="13sp"
+        android:textSize="14sp"
         android:layout_marginStart="8dp"/>
 </LinearLayout>

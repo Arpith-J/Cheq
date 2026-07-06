@@ -14,43 +14,55 @@ class WidgetRemoteViewsService : RemoteViewsService() {
 
 class WidgetDataProviderFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
     private var tasksArray = JSONArray()
+    private val PREFS_NAME = "HomeWidgetPreferences"
 
-    override fun onCreate() {}
+    override fun onCreate() { loadData() }
+    override fun onDataSetChanged() { loadData() }
+    override fun onDestroy() { tasksArray = JSONArray() }
 
-    override fun onDataSetChanged() {
-        var prefs = context.getSharedPreferences("${context.packageName}_preferences", Context.MODE_PRIVATE)
-        var tasksJson = prefs.getString("flutter.daily_tasks_key", null) ?: prefs.getString("daily_tasks_key", null)
-        
-        if (tasksJson.isNullOrEmpty()) {
-            prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            tasksJson = prefs.getString("flutter.daily_tasks_key", null) ?: prefs.getString("daily_tasks_key", null)
+    private fun loadData() {
+        tasksArray = JSONArray() // Clear old cache
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val tasksJson = prefs.getString("flutter.daily_tasks_key", null) 
+                ?: prefs.getString("daily_tasks_key", null)
+
+            if (!tasksJson.isNullOrEmpty()) {
+                tasksArray = JSONArray(tasksJson)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        
-        tasksArray = if (!tasksJson.isNullOrEmpty()) JSONArray(tasksJson) else JSONArray()
     }
-
-    override fun onDestroy() {}
 
     override fun getCount(): Int = tasksArray.length()
 
     override fun getViewAt(position: Int): RemoteViews {
+        if (position < 0 || position >= tasksArray.length()) {
+            return RemoteViews(context.packageName, R.layout.widget_item_row)
+        }
+
         val views = RemoteViews(context.packageName, R.layout.widget_item_row)
         try {
             val task = tasksArray.getJSONObject(position)
-            val title = task.optString("title", "Untitled Task")
+            val title = task.optString("title", "Untitled")
             val isDone = task.optBoolean("isDone", false)
-            val time = task.optString("time", "--:--")
+            val time = task.optString("time", "")
 
             views.setTextViewText(R.id.row_check_icon, if (isDone) "✓" else "○")
-            views.setTextViewText(R.id.row_task_text, "$time  |  $title")
-            
-            // Create an explicit broadcast fill-in intent to match the provider template
-            val fillInIntent = Intent().apply {
-                putExtra("task_id", task.optString("id", ""))
+            views.setTextViewText(R.id.row_task_text, if (time.isNotEmpty()) "$time | $title" else title)
+
+            val appLaunchIntent = Intent().apply {
+                putExtra("action", "LAUNCH_APP")
             }
-            // Bind the click to the entire item card area or icon
-            views.setOnClickFillInIntent(R.id.widget_root, fillInIntent)
-            views.setOnClickFillInIntent(R.id.row_check_icon, fillInIntent)
+            views.setOnClickFillInIntent(R.id.row_root, appLaunchIntent)
+
+            val checkboxToggleIntent = Intent().apply {
+                putExtra("action", "TOGGLE_DONE")
+                putExtra("task_position", position) 
+            }
+            views.setOnClickFillInIntent(R.id.row_check_icon, checkboxToggleIntent)
+            
         } catch (e: Exception) {
             e.printStackTrace()
         }
