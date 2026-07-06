@@ -27,13 +27,19 @@ class TodoListScreen extends ConsumerWidget {
             isScrollable: false,
             tabAlignment: TabAlignment.fill,
             indicatorSize: TabBarIndicatorSize.tab,
-            labelStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-            unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+            unselectedLabelStyle: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 13,
+            ),
             tabs: [
               Tab(text: 'All'),
               Tab(text: 'Tasks'),
               Tab(text: 'Lists'),
-              Tab(text: 'Completed'),
+              Tab(text: 'Done'),
             ],
           ),
         ),

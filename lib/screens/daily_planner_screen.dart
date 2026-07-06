@@ -42,7 +42,7 @@ class NotificationService {
 
     await _plugin.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('@drawable/ic_stat_moon'),
         iOS: DarwinInitializationSettings(
           requestAlertPermission: true,
           requestBadgePermission: true,
@@ -69,6 +69,7 @@ class NotificationService {
         channelDescription: 'Reminders for your daily planner tasks',
         importance: Importance.high,
         priority: Priority.high,
+        icon: '@drawable/ic_stat_moon',
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -132,8 +133,36 @@ class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
   }
 }
 
-class DailyPlannerScreen extends ConsumerWidget {
+class DailyPlannerScreen extends ConsumerStatefulWidget {
   const DailyPlannerScreen({super.key});
+
+  @override
+  ConsumerState<DailyPlannerScreen> createState() => _DailyPlannerScreenState();
+}
+
+class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(() {
+      FirestoreService.instance.syncWidgetChangesToFirestore();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      FirestoreService.instance.syncWidgetChangesToFirestore();
+    }
+  }
 
   void _openAddSheet(BuildContext context, WidgetRef ref,
       {PlannerModel? initialEntry}) {
@@ -152,7 +181,7 @@ class DailyPlannerScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
       body: Column(
@@ -474,11 +503,14 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     final cs = theme.colorScheme;
     final entry = widget.entry;
     final now = DateTime.now();
-    final taskDay = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
-    final today = DateTime(now.year, now.month, now.day);
+    // final taskDay = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
+    // final today = DateTime(now.year, now.month, now.day);
 
-    final isOverdue = !entry.isDone && 
-        (taskDay.isBefore(today) || (taskDay.isAtSameMomentAs(today) && now.isAfter(entry.endTime)));
+    final endDateTime = entry.endTime.isAfter(entry.startTime)
+        ? entry.endTime
+        : entry.endTime.add(const Duration(days: 1));
+
+    final isOverdue = !entry.isDone && now.isAfter(endDateTime);
 
     return Dismissible(
       key: Key(entry.id),

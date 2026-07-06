@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/row_root" 
+    android:id="@+id/row_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:background="#1E1E1E"
     android:padding="12dp"
     android:gravity="center_vertical">
-    
+
     <TextView
         android:id="@+id/row_check_icon"
         android:layout_width="32dp"
@@ -16,12 +16,32 @@
         android:textSize="20sp"
         android:gravity="center"
         android:text="○" />
-        
-    <TextView
-        android:id="@+id/row_task_text"
+
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#E0E0E0"
-        android:textSize="14sp"
-        android:layout_marginStart="8dp"/>
+        android:layout_marginStart="8dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/row_task_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#E0E0E0"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/row_date_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#9E9E9E"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="6 Jul 2026" />
+    </LinearLayout>
+
 </LinearLayout>

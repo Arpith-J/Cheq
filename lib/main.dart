@@ -35,7 +35,7 @@ class CheqApp extends ConsumerWidget {
     final currentAccent = ref.watch(customAccentProvider);
 
     return MaterialApp(
-      title: 'Cheq',
+      title: 'moon',
       debugShowCheckedModeBanner: false,
       
       // Pass the active theme state parameter here
