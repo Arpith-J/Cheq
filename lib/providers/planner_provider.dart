@@ -6,7 +6,6 @@ final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>((ref) 
   return FirestoreService.instance.streamPlannerEntries();
 });
 
-// ── CORE STATE MANAGEMENT NOTIFIER ───────────────────────────────────────────
 class PlannerNotifier extends Notifier<List<PlannerModel>> {
   @override
   List<PlannerModel> build() => [];
@@ -31,28 +30,32 @@ class PlannerNotifier extends Notifier<List<PlannerModel>> {
   }
 }
 
-final plannerProvider = NotifierProvider<PlannerNotifier, List<PlannerModel>>(
+final plannerProvider =
+    NotifierProvider<PlannerNotifier, List<PlannerModel>>(
   PlannerNotifier.new,
 );
 
-// ── RECURRENT INTERVAL EVALUATION PIPELINE (Riverpod 3.0 Family) ─────────────
-// Replaces legacy functional Provider.family with a modern read-only family Notifier
-final plannerForDateProvider = NotifierProvider.family<PlannerForDateNotifier, List<PlannerModel>, DateTime>(
+final plannerForDateProvider =
+    NotifierProvider.family<PlannerForDateNotifier, List<PlannerModel>, DateTime>(
   PlannerForDateNotifier.new,
 );
 
 class PlannerForDateNotifier extends Notifier<List<PlannerModel>> {
   PlannerForDateNotifier(this.targetDateRaw);
+
   final DateTime targetDateRaw;
+
   @override
   List<PlannerModel> build() {
-    final targetDate = DateTime(targetDateRaw.year, targetDateRaw.month, targetDateRaw.day);
+    final targetDate =
+        DateTime(targetDateRaw.year, targetDateRaw.month, targetDateRaw.day);
     final asyncEntries = ref.watch(firestorePlannerStreamProvider);
     final allEntries = asyncEntries.value ?? [];
 
     return allEntries.where((entry) {
-      final taskDate = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
-      
+      final taskDate =
+          DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
+
       if (taskDate.isAtSameMomentAs(targetDate)) return true;
       if (taskDate.isAfter(targetDate)) return false;
 
@@ -60,14 +63,11 @@ class PlannerForDateNotifier extends Notifier<List<PlannerModel>> {
         case RepeatInterval.none:
           return false;
         case RepeatInterval.daily:
-          return true; // Appears every day after creation
+          return true;
         case RepeatInterval.weekly:
           return entry.startTime.weekday == targetDate.weekday;
-
         case RepeatInterval.monthly:
-          // Appears if it falls on the exact same day of the month (e.g., every 15th)
           return entry.startTime.day == targetDate.day;
-
         case RepeatInterval.custom:
           if (entry.customInterval == null) return false;
           final difference = targetDate.difference(taskDate).inDays;

@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../models/planner_model.dart'; // Make sure this path matches your model file location
+import '../models/planner_model.dart'; 
+import '../screens/daily_planner_screen.dart'; // 🌟 Required to clear notification alarms
+import 'home_widget_service.dart';
 
 class FirestoreService {
   FirestoreService._();
@@ -10,42 +12,124 @@ class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  /// Helper getter to fetch the active user's subcollection reference safely
   CollectionReference<Map<String, dynamic>>? get _plannerRef {
     final user = _auth.currentUser;
     if (user == null) return null;
-    
-    // Points directly to: users -> [uid] -> planner
     return _db.collection('users').doc(user.uid).collection('planner');
   }
 
-  /// 📤 STREAM: Real-time synchronization loop that listens for database changes
+  /// 📤 STREAM: Real-time loop listening for database changes
   Stream<List<PlannerModel>> streamPlannerEntries() {
     final ref = _plannerRef;
     if (ref == null) return Stream.value([]);
 
     return ref.snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) {
+      final List<PlannerModel> entries = snapshot.docs.map((doc) {
         return PlannerModel.fromMap(doc.data());
       }).toList();
+      
+      final seenTitles = <String>{};
+      for (var entry in List.from(entries)) {
+        if (seenTitles.contains(entry.title)) {
+          // Deletes database clones
+          instance.deleteTask(entry.id);
+        } else {
+          seenTitles.add(entry.title);
+        }
+      }
+      
+      _processAndSyncWidgets(entries);
+      return entries;
     });
   }
 
-  /// ➕ CREATE / UPDATE: Uploads or overwrites a task document
+  /// ➕ CREATE / UPDATE
   Future<void> saveTask(PlannerModel task) async {
     try {
       await _plannerRef?.doc(task.id).set(task.toMap(), SetOptions(merge: true));
+      
+      final snapshot = await _plannerRef?.get();
+      if (snapshot != null) {
+        final currentTasks = snapshot.docs.map((doc) => PlannerModel.fromMap(doc.data())).toList();
+        
+        try {
+          // 🌟 Wrap this in a nested try/catch so even if a widget sync fails, 
+          // it won't crash the core save operation or freeze your UI sheet!
+          _processAndSyncWidgets(currentTasks);
+        } catch (widgetError) {
+          debugPrint("⚠️ Background widget sync error: $widgetError");
+        }
+      }
     } catch (e) {
-      debugPrint("❌ Failed to save task to Firestore: $e");
+      debugPrint("Failed to save task to Firestore: $e");
     }
   }
 
-  /// ❌ DELETE: Removes a task document permanently from the cloud
+  /// ❌ DELETE
   Future<void> deleteTask(String taskId) async {
     try {
+      // 🌟 FIX: Extract numbers and force them into a safe 32-bit integer range
+      final rawDigits = taskId.replaceAll(RegExp(r'[^0-9]'), '');
+      final parsedInt = int.tryParse(rawDigits);
+      
+      final int stableNotificationId = parsedInt != null 
+          ? (parsedInt % 2147483647) 
+          : taskId.hashCode;
+          
+      // Cancel the notification using the safe 32-bit ID
+      await NotificationService.instance.cancelNotification(stableNotificationId);
+      
+      // Proceed with Firestore deletion
       await _plannerRef?.doc(taskId).delete();
+      
+      final snapshot = await _plannerRef?.get();
+      if (snapshot != null) {
+        final currentTasks = snapshot.docs.map((doc) => PlannerModel.fromMap(doc.data())).toList();
+        _processAndSyncWidgets(currentTasks);
+      }
     } catch (e) {
-      debugPrint("❌ Failed to delete task from Firestore: $e");
+      debugPrint("Failed to delete task from Firestore: $e");
+    }
+  }
+
+  /// Unified clean evaluation loop to determine what belongs on today's interface
+  void _processAndSyncWidgets(List<PlannerModel> allTasks) {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      final todaysTasks = allTasks.where((entry) {
+        final taskDate = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
+        
+        final isToday = taskDate.year == today.year &&
+                        taskDate.month == today.month &&
+                        taskDate.day == today.day;
+
+        if (isToday) return true;
+        
+        // Include older tasks if they are still uncompleted
+        if (taskDate.isBefore(today) && !entry.isDone) return true;
+        
+        // Drop any future upcoming days out of today's widget feed
+        if (taskDate.isAfter(today)) return false;
+
+        switch (entry.repeatInterval) {
+          case RepeatInterval.none: return false;
+          case RepeatInterval.daily: return true;
+          case RepeatInterval.weekly: return entry.startTime.weekday == today.weekday;
+          case RepeatInterval.monthly: return entry.startTime.day == today.day;
+          case RepeatInterval.custom:
+            if (entry.customInterval == null) return false;
+            final difference = today.difference(taskDate).inDays;
+            final stepInDays = entry.customInterval!.inDays;
+            return stepInDays > 0 && (difference % stepInDays == 0);
+        }
+      }).toList()
+        ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+      HomeWidgetService.updateHomeScreenWidgetData(todaysTasks);
+    } catch (e) {
+      debugPrint("Widget processing engine sync failed: $e");
     }
   }
 }

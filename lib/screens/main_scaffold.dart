@@ -9,6 +9,7 @@ import '../providers/theme_provider.dart';
 import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'rewards_screen.dart';
+import 'package:cheq/providers/custom_theme_provider.dart';
 
 // ---------------------------------------------------------------------------
 // MainScaffold
@@ -158,10 +159,11 @@ class AppSideDrawer extends ConsumerWidget {
     final user = FirebaseAuth.instance.currentUser;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final selectedColor = ref.watch(customAccentProvider);
 
     return Drawer(
       backgroundColor: cs.surface,
-      child: Column( // 🌟 Changed to Column to enable explicit bottom placement logic
+      child: Column( // 
         children: [
           Expanded(
             child: ListView(
@@ -210,8 +212,62 @@ class AppSideDrawer extends ConsumerWidget {
               ],
             ),
           ),
+          const Divider(),
 
-          // ── 🌟 LOGOUT ANCHOR BLOCK (Locked at the absolute bottom) ──
+          Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.palette_rounded, color: cs.primary, size: 22),
+                      const SizedBox(width: 14),
+                      Text("App Theme Accent", style: TextStyle(fontWeight: FontWeight.w600, color: cs.onSurface, fontSize: 14)),
+                    ],
+                  ),
+                ),
+          // Horizontal Swatch Map Picker grid
+          Padding(
+            padding: const EdgeInsets.fromLTRB(52, 4, 16, 12),
+            child: Wrap( // 🌟 FIX: Swapped 'Row' with 'Wrap' to allow auto-wrapping
+              spacing: 12, // Handles horizontal spacing between items cleanly
+              runSpacing: 8, // Handles vertical spacing if an item drops down!
+              alignment: WrapAlignment.start,
+              children: appAccentSwatches.map((colorValue) {
+                final isCurrentChoice = selectedColor == colorValue;
+                return GestureDetector(
+                  onTap: () => ref.read(customAccentProvider.notifier).updateAccentColor(colorValue),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    // margin: const EdgeInsets.only(right: 12), // 💡 Remove this right margin since Wrap 'spacing' handles it!
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: colorValue,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isCurrentChoice ? cs.onSurface : Colors.transparent,
+                        width: isCurrentChoice ? 2.5 : 0,
+                      ),
+                      boxShadow: [
+                        if (isCurrentChoice)
+                          BoxShadow(color: colorValue.withValues(alpha: 0.4), blurRadius: 6, spreadRadius: 1)
+                      ],
+                    ),
+                    child: isCurrentChoice 
+                        ? Icon(
+                            Icons.check_rounded, 
+                            color: ThemeData.estimateBrightnessForColor(colorValue) == Brightness.dark 
+                                ? Colors.white 
+                                : Colors.black, 
+                            size: 14,
+                          )
+                        : null,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+              
+          //LOGOUT ANCHOR BLOCK (Locked at the absolute bottom) ──
           const Divider(height: 1), // Optional clean subtle divider line
           SafeArea(
             top: false, // Ensures accurate screen padding bounds on notched phone devices
