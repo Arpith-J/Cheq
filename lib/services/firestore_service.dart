@@ -4,8 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 import '../models/planner_model.dart';
-import '../screens/daily_planner_screen.dart';
 import 'home_widget_service.dart';
+import '../services/notification_service.dart';
 
 class FirestoreService {
   FirestoreService._();
@@ -175,6 +175,39 @@ class FirestoreService {
       HomeWidgetService.updateHomeScreenWidgetData(todaysTasks);
     } catch (e) {
       debugPrint("Widget processing engine sync failed: $e");
+    }
+  }
+  // ── USER SETTINGS SCHEMA ──
+
+  /// Generates the path to the specific user's document: users/{uid}
+  DocumentReference _userDocRef(String uid) {
+    return _db.collection('users').doc(uid);
+  }
+
+  /// 📥 FETCH USER SETTINGS
+  /// Called when the app first starts up to load their saved theme and notification times.
+  Future<Map<String, dynamic>?> getUserSettings(String uid) async {
+    try {
+      final snapshot = await _userDocRef(uid).get();
+      if (snapshot.exists && snapshot.data() != null) {
+        return snapshot.data() as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      debugPrint("Failed to fetch user settings from Firestore: $e");
+      return null;
+    }
+  }
+
+  /// 📤 SAVE USER SETTINGS
+  /// Called whenever the user picks a new color or flips a notification switch.
+  /// Uses SetOptions(merge: true) so it only updates the specific fields we pass in,
+  /// without overwriting other user data.
+  Future<void> saveUserSettings(String uid, Map<String, dynamic> settingsData) async {
+    try {
+      await _userDocRef(uid).set(settingsData, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to save user settings to Firestore: $e");
     }
   }
 }

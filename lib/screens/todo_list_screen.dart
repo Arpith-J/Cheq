@@ -466,6 +466,7 @@ class _ExpandingSpeedDialFabState extends ConsumerState<_ExpandingSpeedDialFab> 
           const SizedBox(height: 14),
         ],
         FloatingActionButton(
+          heroTag: 'todo_fab',
           onPressed: _toggleMenu,
           backgroundColor: cs.primaryContainer,
           child: AnimatedRotation(

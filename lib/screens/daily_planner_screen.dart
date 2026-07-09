@@ -2,94 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart'
-    hide RepeatInterval;
-import 'package:timezone/data/latest_10y.dart' as tz;
-import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter_timezone/flutter_timezone.dart';
 
 import '../models/planner_model.dart';
 import '../providers/planner_provider.dart';
+import '../providers/notification_settings_provider.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
+import '../widgets/week_header.dart';
+import 'auth_gate.dart';
 
-class NotificationService {
-  NotificationService._();
-  static final NotificationService instance = NotificationService._();
-
-  final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
-  bool _initialized = false;
-
-  Future<void> initialize() async {
-    if (_initialized) return;
-
-    tz.initializeTimeZones();
-    try {
-      final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
-      final String timeZoneName = timeZoneInfo.identifier;
-      tz.setLocalLocation(tz.getLocation(timeZoneName));
-    } catch (_) {
-      tz.setLocalLocation(tz.getLocation('Etc/UTC'));
-    }
-
-    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-
-    if (androidPlugin != null) {
-      await androidPlugin.requestNotificationsPermission();
-      androidPlugin.requestExactAlarmsPermission();
-    }
-
-    await _plugin.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@drawable/ic_stat_moon'),
-        iOS: DarwinInitializationSettings(
-          requestAlertPermission: true,
-          requestBadgePermission: true,
-          requestSoundPermission: true,
-        ),
-      ),
-    );
-
-    _initialized = true;
-  }
-
-  Future<void> scheduleNotification({
-    required int id,
-    required String title,
-    required String body,
-    required DateTime scheduledTime,
-  }) async {
-    if (!_initialized) await initialize();
-
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'cheq_planner_channel',
-        'Daily Planner',
-        channelDescription: 'Reminders for your daily planner tasks',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@drawable/ic_stat_moon',
-      ),
-      iOS: DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      ),
-    );
-
-    await _plugin.zonedSchedule(
-      id: id,
-      title: title,
-      body: body,
-      scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
-      notificationDetails: details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-    );
-  }
-
-  Future<void> cancelNotification(int id) async => await _plugin.cancel(id: id);
-}
 
 final selectedDayProvider = NotifierProvider(
   SelectedDayNotifier.new,
@@ -187,11 +108,12 @@ class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen>
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
-          _WeekHeader(),
+          WeekHeader(),
           Expanded(child: _TaskFeed()),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'planner_fab',
         onPressed: () => _openAddSheet(context, ref),
         icon: const Icon(Icons.add_rounded),
         label: const Text('Add Task'),
@@ -200,215 +122,6 @@ class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen>
   }
 }
 
-class _WeekHeader extends ConsumerStatefulWidget {
-  const _WeekHeader();
-
-  @override
-  ConsumerState<_WeekHeader> createState() => _WeekHeaderState();
-}
-
-class _WeekHeaderState extends ConsumerState<_WeekHeader> {
-  late PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController(initialPage: 1);
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = ref.watch(selectedDayProvider);
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return Container(
-      color: cs.surface,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                _monthYear(selected),
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: cs.onSurface,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const Spacer(),
-              if (!_sameDay(selected, DateTime.now()))
-                Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      backgroundColor: cs.primaryContainer.withValues(alpha: 0.5),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                    onPressed: () {
-                      final today = DateTime.now();
-                      ref.read(selectedDayProvider.notifier).changeDay(today);
-                      _pageController.jumpToPage(1);
-                    },
-                    icon: Icon(Icons.today_rounded, size: 16, color: cs.onPrimaryContainer),
-                    label: Text(
-                      'Today',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: cs.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-                ),
-              _CalendarPickerButton(selected: selected),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 64,
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: 3,
-              onPageChanged: (int pageIndex) {
-                if (pageIndex == 1) return;
-                final weekOffset = pageIndex == 2 ? 7 : -7;
-                final targetDay = selected.add(Duration(days: weekOffset));
-                ref.read(selectedDayProvider.notifier).changeDay(targetDay);
-                _pageController.jumpToPage(1);
-              },
-              itemBuilder: (context, pageOffsetIndex) {
-                final weekShiftDays = (pageOffsetIndex - 1) * 7;
-                final targetCalculatedDay = selected.add(Duration(days: weekShiftDays));
-                final weekDays = _buildWeek(targetCalculatedDay);
-
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: weekDays.map((day) {
-                    final isSelected = _sameDay(day, selected);
-                    final isToday = _sameDay(day, DateTime.now());
-
-                    return GestureDetector(
-                      onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutCubic,
-                        width: 40,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? cs.primary
-                              : isToday
-                                  ? cs.primaryContainer
-                                  : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              _weekdayShort(day),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.3,
-                                color: isSelected
-                                    ? cs.onPrimary
-                                    : isToday
-                                        ? cs.onPrimaryContainer
-                                        : cs.onSurface.withValues(alpha: 0.55),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${day.day}',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: isSelected
-                                    ? cs.onPrimary
-                                    : isToday
-                                        ? cs.onPrimaryContainer
-                                        : cs.onSurface,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.5)),
-        ],
-      ),
-    );
-  }
-
-  List<DateTime> _buildWeek(DateTime day) {
-    final monday = day.subtract(Duration(days: day.weekday - 1));
-    return List.generate(7, (i) => monday.add(Duration(days: i)));
-  }
-
-  bool _sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
-  String _weekdayShort(DateTime d) =>
-      const ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][d.weekday - 1];
-
-  String _monthYear(DateTime d) {
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    return '${months[d.month - 1]} ${d.year}';
-  }
-}
-
-class _CalendarPickerButton extends ConsumerWidget {
-  const _CalendarPickerButton({required this.selected});
-
-  final DateTime selected;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cs = Theme.of(context).colorScheme;
-    return IconButton.filledTonal(
-      onPressed: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: selected,
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2035),
-        );
-        if (picked != null) {
-          ref.read(selectedDayProvider.notifier).changeDay(picked);
-        }
-      },
-      icon: const Icon(Icons.calendar_month_rounded, size: 20),
-      style: IconButton.styleFrom(
-        backgroundColor: cs.primaryContainer,
-        foregroundColor: cs.onPrimaryContainer,
-        padding: const EdgeInsets.all(8),
-        minimumSize: const Size(36, 36),
-      ),
-    );
-  }
-}
 
 class _TaskFeed extends ConsumerWidget {
   const _TaskFeed();
@@ -528,6 +241,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
       confirmDismiss: (direction) async {
         try {
           await FirestoreService.instance.deleteTask(entry.id);
+          _syncNativeAlarms(ref);
           return true; // Confirms removal to the animation tree safely
         } catch (e) {
           debugPrint("Error dismissing: $e");
@@ -553,6 +267,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
             final confirmed = await _showDeleteConfirmDialog(context);
             if (confirmed && mounted) {
               await FirestoreService.instance.deleteTask(entry.id);
+              _syncNativeAlarms(ref);
             }
           },
           child: AnimatedSize(
@@ -669,6 +384,7 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                                         entry.copyWith(isDone: isChecked ?? false);
                                     await FirestoreService.instance
                                         .saveTask(updatedTask);
+                                    _syncNativeAlarms(ref);
                                   },
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(6),
@@ -940,8 +656,8 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
       );
 
       await FirestoreService.instance.saveTask(entry);
-
-      // 🌟 FIX: Apply identical 32-bit integer compression constraints
+      
+      // FIX: Apply identical 32-bit integer compression constraints
       final rawDigits = targetId.replaceAll(RegExp(r'[^0-9]'), '');
       final parsedInt = int.tryParse(rawDigits);
       
@@ -955,12 +671,14 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
         unawaited(
           NotificationService.instance.scheduleNotification(
             id: stableNotificationId,
-            title: 'Moon Reminder',
+            title: '$appName Reminder',
             body: _titleCtrl.text.trim(),
             scheduledTime: startDt,
           ),
         );
       }
+
+      _syncNativeAlarms(ref);
 
       if (mounted) {
         Navigator.pop(context);
@@ -1182,4 +900,14 @@ class _TimeTile extends StatelessWidget {
       ),
     );
   }
+}
+void _syncNativeAlarms(WidgetRef ref) {
+  // Add a tiny microtask delay so the Firestore stream has time to update the provider first
+  Future.microtask(() {
+    final currentDayTasks = ref.read(selectedDayEntriesProvider);
+    final totalToday = currentDayTasks.length;
+    final pendingToday = currentDayTasks.where((t) => !t.isDone).length;
+    
+    ref.read(notificationSettingsProvider.notifier).syncBriefingPayloads(totalToday, pendingToday);
+  });
 }

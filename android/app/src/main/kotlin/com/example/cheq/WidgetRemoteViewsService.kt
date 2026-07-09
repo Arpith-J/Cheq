@@ -38,37 +38,41 @@ class WidgetDataProviderFactory(private val context: Context) : RemoteViewsServi
     override fun getCount(): Int = tasksArray.length()
 
     override fun getViewAt(position: Int): RemoteViews {
-        if (position < 0 || position >= tasksArray.length()) {
-            return RemoteViews(context.packageName, R.layout.widget_item_row)
-        }
-
-        val views = RemoteViews(context.packageName, R.layout.widget_item_row)
-        try {
-            val task = tasksArray.getJSONObject(position)
-            val title = task.optString("title", "Untitled")
-            val isDone = task.optBoolean("isDone", false)
-            val time = task.optString("time", "")
-            val date = task.optString("date", "")
-
-            views.setTextViewText(R.id.row_check_icon, if (isDone) "✓" else "○")
-            views.setTextViewText(R.id.row_task_text, if (time.isNotEmpty()) "$time | $title" else title)
-
-            val appLaunchIntent = Intent().apply {
-                putExtra("action", "LAUNCH_APP")
-            }
-            views.setOnClickFillInIntent(R.id.row_root, appLaunchIntent)
-
-            val checkboxToggleIntent = Intent().apply {
-                putExtra("action", "TOGGLE_DONE")
-                putExtra("task_position", position) 
-            }
-            views.setOnClickFillInIntent(R.id.row_check_icon, checkboxToggleIntent)
-            
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return views
+    if (position < 0 || position >= tasksArray.length()) {
+        return RemoteViews(context.packageName, R.layout.widget_item_row)
     }
+
+    val views = RemoteViews(context.packageName, R.layout.widget_item_row)
+    try {
+        val task = tasksArray.getJSONObject(position)
+        val title = task.optString("title", "Untitled")
+        val isDone = task.optBoolean("isDone", false)
+        val time = task.optString("time", "")
+        val date = task.optString("date", "")
+
+        views.setTextViewText(R.id.row_check_icon, if (isDone) "✓" else "○")
+        views.setTextViewText(
+            R.id.row_task_text,
+            if (time.isNotEmpty()) "$time | $title" else title
+        )
+        views.setTextViewText(R.id.row_date_text, date)
+
+        val appLaunchIntent = Intent().apply {
+            putExtra("action", "LAUNCH_APP")
+        }
+        views.setOnClickFillInIntent(R.id.row_root, appLaunchIntent)
+
+        val checkboxToggleIntent = Intent().apply {
+            putExtra("action", "TOGGLE_DONE")
+            putExtra("task_position", position)
+        }
+        views.setOnClickFillInIntent(R.id.row_check_icon, checkboxToggleIntent)
+
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return views
+}
 
     override fun getLoadingView(): RemoteViews? = null
     override fun getViewTypeCount(): Int = 1
