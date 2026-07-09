@@ -1,0 +1,4 @@
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/icon_ariadne.png" # Points directly to your ARIADNE asset

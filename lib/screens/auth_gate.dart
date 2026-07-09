@@ -12,6 +12,7 @@ import 'main_scaffold.dart'; // ← moved to top with other imports
 // Providers
 // ---------------------------------------------------------------------------
 
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
@@ -156,7 +157,7 @@ class _SignInScreenState extends ConsumerState<_SignInScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'Welcome to moon',
+                'Welcome to $appName',
                 style: theme.textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: cs.onSurface,
