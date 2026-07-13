@@ -12,9 +12,9 @@ class SettingsScreen extends ConsumerWidget {
 
   // 🌟 Dynamic Salutation Logic based on the user's picked time
   String _getSalutation(TimeOfDay time) {
-    if (time.hour >= 0 && time.hour < 12) return "morning";
-    if (time.hour >= 12 && time.hour < 17) return "afternoon";
-    if (time.hour >= 17 && time.hour < 21) return "evening";
+    if (time.hour >= 4 && time.hour < 12) return "morning";
+    if (time.hour >= 12 && time.hour < 16) return "afternoon";
+    if (time.hour >= 16 && time.hour < 20) return "evening";
     return "night";
   }
 

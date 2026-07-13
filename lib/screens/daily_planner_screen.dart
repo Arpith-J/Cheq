@@ -908,6 +908,14 @@ void _syncNativeAlarms(WidgetRef ref) {
     final totalToday = currentDayTasks.length;
     final pendingToday = currentDayTasks.where((t) => !t.isDone).length;
     
-    ref.read(notificationSettingsProvider.notifier).syncBriefingPayloads(totalToday, pendingToday);
+    // NEW: Calculate yesterday's pending tasks
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final pendingYesterday = currentDayTasks
+        .where((t) => !t.isDone && t.startTime.isBefore(todayStart))
+        .length;
+    
+    // Pass the new variable into the sync payload
+    ref.read(notificationSettingsProvider.notifier).syncBriefingPayloads(totalToday, pendingToday, pendingYesterday);
   });
 }
