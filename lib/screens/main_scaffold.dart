@@ -11,6 +11,7 @@ import 'rewards_screen.dart';
 import '../widgets/app_side_drawer.dart';
 import '../providers/notification_settings_provider.dart';
 import '../providers/custom_theme_provider.dart';
+import '../providers/theme_provider.dart';
 
 // ---------------------------------------------------------------------------
 // MainScaffold
@@ -36,6 +37,8 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
         ref.read(customAccentProvider.notifier).loadSettings(user.uid);
         // Load the saved notification preferences
         ref.read(notificationSettingsProvider.notifier).loadSettings(user.uid);
+        // Load the saved Dark Mode preference
+        ref.read(themeModeProvider.notifier).loadSettings(user.uid);
       }
     });
   }

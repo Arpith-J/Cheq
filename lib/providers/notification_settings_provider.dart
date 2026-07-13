@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/notification_service.dart';
 import '../services/firestore_service.dart';
+import '../screens/auth_gate.dart'; 
 
 class NotificationConfig {
   final bool morningEnabled;
@@ -41,6 +42,7 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
   // Use stable IDs so we don't accidentally create duplicates
   static const int morningNotificationId = 100;
   static const int eveningNotificationId = 200;
+  static const int chaserNotificationId = 300;
 
   @override
   NotificationConfig build() {
@@ -53,9 +55,9 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
   }
 
   String _getSalutation(TimeOfDay time) {
-    if (time.hour >= 0 && time.hour < 12) return "morning";
-    if (time.hour >= 12 && time.hour < 17) return "afternoon";
-    if (time.hour >= 17 && time.hour < 21) return "evening";
+    if (time.hour >= 4 && time.hour < 12) return "morning";
+    if (time.hour >= 12 && time.hour < 16) return "afternoon";
+    if (time.hour >= 16 && time.hour < 20) return "evening";
     return "night";
   }
 
@@ -66,6 +68,7 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
       _rescheduleMorning(0);
     } else {
       NotificationService.instance.cancelBriefing(morningNotificationId);
+      NotificationService.instance.cancelBriefing(chaserNotificationId);
     }
     _saveToFirebase(state);
   }
@@ -76,14 +79,35 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
     _saveToFirebase(state);
   }
 
-  void _rescheduleMorning(int taskCount) {
+  void _rescheduleMorning(int taskCount, [int pendingYesterday = 0]) {
     final taskString = taskCount == 1 ? "1 task" : "$taskCount tasks";
     NotificationService.instance.scheduleDailyBriefing(
       id: morningNotificationId,
       time: state.morningTime,
-      title: 'Moon Overview',
+      title: '$appName Overview', // 🌟 Dynamic branding
       body: 'Good ${_getSalutation(state.morningTime)} ${_getFirstName()}, you have $taskString scheduled for today.',
     );
+
+    // 🌟 CHASER LOGIC
+    if (pendingYesterday > 0) {
+      // Add exactly 30 minutes to the scheduled morning time
+      int chaserMinutes = state.morningTime.minute + 30;
+      int chaserHour = state.morningTime.hour + (chaserMinutes ~/ 60);
+      TimeOfDay chaserTime = TimeOfDay(
+        hour: chaserHour % 24,
+        minute: chaserMinutes % 60,
+      );
+
+      NotificationService.instance.scheduleDailyBriefing(
+        id: chaserNotificationId,
+        time: chaserTime,
+        title: 'Pending Tasks Reminder',
+        body: 'You still have $pendingYesterday pending ${pendingYesterday == 1 ? "task" : "tasks"} from yesterday to finish up.',
+      );
+    } else {
+      // Critical: Cancel if they finished everything!
+      NotificationService.instance.cancelBriefing(chaserNotificationId);
+    }
   }
 
   // 🌃 EVENING LOGIC
@@ -121,8 +145,8 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
     );
   }
 
-  void syncBriefingPayloads(int totalTasksToday, int pendingTasksToday) {
-    if (state.morningEnabled) _rescheduleMorning(totalTasksToday);
+  void syncBriefingPayloads(int totalTasksToday, int pendingTasksToday, [int pendingYesterday = 0]) {
+    if (state.morningEnabled) _rescheduleMorning(totalTasksToday, pendingYesterday);
     if (state.eveningEnabled) _rescheduleEvening(pendingTasksToday);
   }
 
