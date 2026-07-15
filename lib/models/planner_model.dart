@@ -10,6 +10,7 @@ class PlannerModel {
   final bool isTimeLocked; 
   final RepeatInterval repeatInterval;
   final Duration? customInterval;
+  final String? repeatGroupId;
 
   const PlannerModel({
     required this.id,
@@ -21,6 +22,7 @@ class PlannerModel {
     this.isTimeLocked = false, // Defaults to flexible
     this.repeatInterval = RepeatInterval.none,
     this.customInterval,
+    this.repeatGroupId,
   });
 
   PlannerModel copyWith({
@@ -33,6 +35,7 @@ class PlannerModel {
     bool? isTimeLocked,
     RepeatInterval? repeatInterval,
     Duration? customInterval,
+    String? repeatGroupId,
   }) {
     return PlannerModel(
       id: id ?? this.id,
@@ -44,6 +47,7 @@ class PlannerModel {
       isTimeLocked: isTimeLocked ?? this.isTimeLocked,
       repeatInterval: repeatInterval ?? this.repeatInterval,
       customInterval: customInterval ?? this.customInterval,
+      repeatGroupId: repeatGroupId ?? this.repeatGroupId,
     );
   }
 
@@ -58,6 +62,7 @@ class PlannerModel {
       'isTimeLocked': isTimeLocked,
       'repeatInterval': repeatInterval.name,
       'customIntervalInSeconds': customInterval?.inSeconds,
+      'repeatGroupId': repeatGroupId,
     };
   }
 
@@ -77,6 +82,7 @@ class PlannerModel {
       customInterval: map['customIntervalInSeconds'] != null
           ? Duration(seconds: map['customIntervalInSeconds'] as int)
           : null,
+      repeatGroupId: map['repeatGroupId'] as String?,
     );
   }
 }
