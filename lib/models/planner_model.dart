@@ -7,6 +7,7 @@ class PlannerModel {
   final DateTime endTime;
   final bool isDone;
   final bool isNotified;
+  final bool isTimeLocked; 
   final RepeatInterval repeatInterval;
   final Duration? customInterval;
 
@@ -17,6 +18,7 @@ class PlannerModel {
     required this.endTime,
     this.isDone = false,
     this.isNotified = false,
+    this.isTimeLocked = false, // Defaults to flexible
     this.repeatInterval = RepeatInterval.none,
     this.customInterval,
   });
@@ -28,6 +30,7 @@ class PlannerModel {
     DateTime? endTime,
     bool? isDone,
     bool? isNotified,
+    bool? isTimeLocked,
     RepeatInterval? repeatInterval,
     Duration? customInterval,
   }) {
@@ -38,6 +41,7 @@ class PlannerModel {
       endTime: endTime ?? this.endTime,
       isDone: isDone ?? this.isDone,
       isNotified: isNotified ?? this.isNotified,
+      isTimeLocked: isTimeLocked ?? this.isTimeLocked,
       repeatInterval: repeatInterval ?? this.repeatInterval,
       customInterval: customInterval ?? this.customInterval,
     );
@@ -51,6 +55,7 @@ class PlannerModel {
       'endTime': endTime.toIso8601String(),
       'isDone': isDone,
       'isNotified': isNotified,
+      'isTimeLocked': isTimeLocked,
       'repeatInterval': repeatInterval.name,
       'customIntervalInSeconds': customInterval?.inSeconds,
     };
@@ -64,6 +69,7 @@ class PlannerModel {
       endTime: DateTime.parse(map['endTime']),
       isDone: map['isDone'] ?? false,
       isNotified: map['isNotified'] ?? false,
+      isTimeLocked: map['isTimeLocked'] ?? false,
       repeatInterval: RepeatInterval.values.firstWhere(
         (e) => e.name == map['repeatInterval'],
         orElse: () => RepeatInterval.none,

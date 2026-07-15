@@ -243,6 +243,37 @@ class FirestoreService {
       debugPrint("Failed to save user settings to Firestore: $e");
     }
   }
+  /// 🌊 BATCH UPDATE FOR LIQUID RESCHEDULER
+  Future<void> saveTasksBatch(List<PlannerModel> tasks) async {
+    final ref = _plannerRef;
+    if (ref == null || tasks.isEmpty) return;
+
+    try {
+      final batch = _db.batch();
+      for (final task in tasks) {
+        batch.set(ref.doc(task.id), task.toMap(), SetOptions(merge: true));
+        
+        // Update notification for the shifted task
+        if (task.isNotified) {
+          final rawDigits = task.id.replaceAll(RegExp(r'[^0-9]'), '');
+          final parsedInt = int.tryParse(rawDigits);
+          final int stableId = parsedInt != null ? (parsedInt % 2147483647) : task.id.hashCode;
+          
+          await NotificationService.instance.cancelNotification(stableId);
+          unawaited(NotificationService.instance.scheduleNotification(
+            id: stableId,
+            title: 'Cheq Reminder',
+            body: task.title,
+            scheduledTime: task.startTime,
+          ));
+        }
+      }
+      await batch.commit();
+      debugPrint("🌊 Liquid Rescheduler successfully batch updated ${tasks.length} tasks.");
+    } catch (e) {
+      debugPrint("Batch update failed: $e");
+    }
+  }
 }
 
 // Helper utility for fire-and-forget background cleanup tasks
