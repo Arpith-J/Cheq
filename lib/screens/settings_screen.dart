@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/theme_provider.dart';
 import '../providers/notification_settings_provider.dart';
 import '../widgets/theme_picker_row.dart';
+import '../widgets/settings/ai_settings_card.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -85,9 +86,12 @@ class SettingsScreen extends ConsumerWidget {
                       Text("App Theme Accent", style: TextStyle(fontWeight: FontWeight.w600)),
                       SizedBox(height: 16),
                       ThemePickerRow(), // 🌟 Your modular colour picker!
+                      
                     ],
                   ),
                 ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                AiSettingsCard(),
               ],
             ),
           ),
