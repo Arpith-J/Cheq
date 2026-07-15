@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/planner_provider.dart';
-import '../screens/daily_planner_screen.dart';
 import '../providers/notification_settings_provider.dart';
 
 class WeekHeader extends ConsumerStatefulWidget {
