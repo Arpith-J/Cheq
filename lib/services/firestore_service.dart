@@ -20,6 +20,49 @@ class FirestoreService {
     return _db.collection('users').doc(user.uid).collection('planner');
   }
 
+  /// 🧹 AUTOMATIC 3-DAY CLEANUP CYCLE
+  /// Finds all tasks marked as completed ('isDone == true') whose scheduled 
+  /// date is older than 3 days relative to today and deletes them.
+  Future<void> runAutomaticDataCleanup(List<PlannerModel> allTasks) async {
+    final ref = _plannerRef;
+    if (ref == null) return;
+
+    try {
+      final now = DateTime.now();
+      final thresholdDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 3));
+
+      // Filter tasks to find completed tasks that scheduled 3+ days before today
+      final tasksToPurge = allTasks.where((task) {
+        if (!task.isDone) return false;
+        final taskDate = DateTime(task.startTime.year, task.startTime.month, task.startTime.day);
+        return taskDate.isBefore(thresholdDate);
+      }).toList();
+
+      if (tasksToPurge.isEmpty) return;
+
+      debugPrint("🧹 Found ${tasksToPurge.length} completed tasks older than 3 days. Initiating cleanup...");
+
+      // Execute batches/deletions in parallel safely
+      await Future.wait(tasksToPurge.map((task) async {
+        // Cancel notification structures
+        final rawDigits = task.id.replaceAll(RegExp(r'[^0-9]'), '');
+        final parsedInt = int.tryParse(rawDigits);
+        final int stableNotificationId = parsedInt != null 
+            ? (parsedInt % 2147483647) 
+            : task.id.hashCode;
+
+        await NotificationService.instance.cancelNotification(stableNotificationId);
+        
+        // Delete from Firestore database
+        await ref.doc(task.id).delete();
+        debugPrint("🗑️ Purged task: '${task.title}' (Scheduled: ${task.startTime})");
+      }));
+
+    } catch (e) {
+      debugPrint("⚠️ Automatic 3-day cleanup routine encountered an error: $e");
+    }
+  }
+
   Future<void> syncWidgetChangesToFirestore() async {
     try {
       final String? tasksJson =
@@ -67,7 +110,10 @@ class FirestoreService {
         final refreshedTasks = refreshed.docs
             .map((doc) => PlannerModel.fromMap(doc.data()))
             .toList();
+            
+        // Trigger self-cleaning on status alterations
         _processAndSyncWidgets(refreshedTasks);
+        unawaited(runAutomaticDataCleanup(refreshedTasks));
       }
     } catch (e) {
       debugPrint("Widget sync-back failed: $e");
@@ -84,6 +130,10 @@ class FirestoreService {
       }).toList();
             
       _processAndSyncWidgets(entries);
+      
+      // Auto-runs cleanup silenty without blocking standard UI stream deliveries
+      runAutomaticDataCleanup(entries);
+      
       return entries;
     });
   }
@@ -98,11 +148,11 @@ class FirestoreService {
         final currentTasks = snapshot.docs.map((doc) => PlannerModel.fromMap(doc.data())).toList();
         
         try {
-          // 🌟 Wrap this in a nested try/catch so even if a widget sync fails, 
-          // it won't crash the core save operation or freeze your UI sheet!
           _processAndSyncWidgets(currentTasks);
+          // Run cleanup in parallel to save cycles
+          runAutomaticDataCleanup(currentTasks);
         } catch (widgetError) {
-          debugPrint("⚠️ Background widget sync error: $widgetError");
+          debugPrint("⚠️ Background widget/cleanup error: $widgetError");
         }
       }
     } catch (e) {
@@ -113,7 +163,6 @@ class FirestoreService {
   /// ❌ DELETE
   Future<void> deleteTask(String taskId) async {
     try {
-      // 🌟 FIX: Extract numbers and force them into a safe 32-bit integer range
       final rawDigits = taskId.replaceAll(RegExp(r'[^0-9]'), '');
       final parsedInt = int.tryParse(rawDigits);
       
@@ -121,10 +170,7 @@ class FirestoreService {
           ? (parsedInt % 2147483647) 
           : taskId.hashCode;
           
-      // Cancel the notification using the safe 32-bit ID
       await NotificationService.instance.cancelNotification(stableNotificationId);
-      
-      // Proceed with Firestore deletion
       await _plannerRef?.doc(taskId).delete();
       
       final snapshot = await _plannerRef?.get();
@@ -137,7 +183,6 @@ class FirestoreService {
     }
   }
 
-  /// Unified clean evaluation loop to determine what belongs on today's interface
   void _processAndSyncWidgets(List<PlannerModel> allTasks) {
     try {
       final now = DateTime.now();
@@ -151,11 +196,7 @@ class FirestoreService {
                         taskDate.day == today.day;
 
         if (isToday) return true;
-        
-        // Include older tasks if they are still uncompleted
         if (taskDate.isBefore(today) && !entry.isDone) return true;
-        
-        // Drop any future upcoming days out of today's widget feed
         if (taskDate.isAfter(today)) return false;
 
         switch (entry.repeatInterval) {
@@ -177,15 +218,11 @@ class FirestoreService {
       debugPrint("Widget processing engine sync failed: $e");
     }
   }
-  // ── USER SETTINGS SCHEMA ──
 
-  /// Generates the path to the specific user's document: users/{uid}
   DocumentReference _userDocRef(String uid) {
     return _db.collection('users').doc(uid);
   }
 
-  /// 📥 FETCH USER SETTINGS
-  /// Called when the app first starts up to load their saved theme and notification times.
   Future<Map<String, dynamic>?> getUserSettings(String uid) async {
     try {
       final snapshot = await _userDocRef(uid).get();
@@ -199,10 +236,6 @@ class FirestoreService {
     }
   }
 
-  /// 📤 SAVE USER SETTINGS
-  /// Called whenever the user picks a new color or flips a notification switch.
-  /// Uses SetOptions(merge: true) so it only updates the specific fields we pass in,
-  /// without overwriting other user data.
   Future<void> saveUserSettings(String uid, Map<String, dynamic> settingsData) async {
     try {
       await _userDocRef(uid).set(settingsData, SetOptions(merge: true));
@@ -211,3 +244,6 @@ class FirestoreService {
     }
   }
 }
+
+// Helper utility for fire-and-forget background cleanup tasks
+void unawaited(Future<void> future) {}
