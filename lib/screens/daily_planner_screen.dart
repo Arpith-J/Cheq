@@ -9,7 +9,6 @@ import '../providers/notification_settings_provider.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/week_header.dart';
-import 'auth_gate.dart';
 import '../utils/liquid_rescheduler.dart';
 
 
@@ -225,29 +224,39 @@ class _TaskRowState extends ConsumerState<_TaskRow>
     return '$hour:$minute $period';
   }
 
-  Future<bool> _showDeleteConfirmDialog(BuildContext context) async {
+  Future<int> _showDeleteConfirmDialog(BuildContext context) async {
     final cs = Theme.of(context).colorScheme;
-    return await showDialog(
+    final isRecurring = widget.entry.repeatGroupId != null;
+
+    return await showDialog<int>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Delete Task',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            content:
-                const Text('Are you sure you want to permanently delete this task?'),
+            title: const Text('Delete Task', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            content: Text(isRecurring 
+              ? 'This is a repeating task. Do you want to delete just this one, or all future tasks in this series?'
+              : 'Are you sure you want to permanently delete this task?'),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
+                onPressed: () => Navigator.pop(ctx, 0), // 0 = Cancel
                 child: const Text('Cancel'),
               ),
+              if (isRecurring)
+                TextButton(
+                  style: TextButton.styleFrom(foregroundColor: cs.primary),
+                  onPressed: () => Navigator.pop(ctx, 1), // 1 = Delete Only This
+                  child: const Text('This Only'),
+                ),
               TextButton(
-                style: TextButton.styleFrom(foregroundColor: cs.error),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete'),
+                style: TextButton.styleFrom(
+                  backgroundColor: cs.errorContainer,
+                  foregroundColor: cs.onErrorContainer,
+                ),
+                onPressed: () => Navigator.pop(ctx, 2), // 2 = Delete All (or just Delete if normal)
+                child: Text(isRecurring ? 'All Future' : 'Delete'),
               ),
             ],
           ),
-        ) ??
-        false;
+        ) ?? 0;
   }
 
   @override
@@ -304,9 +313,15 @@ class _TaskRowState extends ConsumerState<_TaskRow>
           borderRadius: BorderRadius.circular(14),
           onTap: () => setState(() => _isExpanded = !_isExpanded),
           onLongPress: () async {
-            final confirmed = await _showDeleteConfirmDialog(context);
-            if (confirmed && mounted) {
-              await FirestoreService.instance.deleteTask(entry.id);
+            final action = await _showDeleteConfirmDialog(context);
+            if (action > 0 && mounted) {
+              if (action == 2 && entry.repeatGroupId != null) {
+                // Nuke all future tasks in this series
+                await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
+              } else {
+                // Normal single deletion
+                await FirestoreService.instance.deleteTask(entry.id);
+              }
               _syncNativeAlarms(ref);
             }
           },
@@ -679,65 +694,135 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
   }
 
   Future<void> _save() async {
+    // 1. Prevent double-saving and empty titles
     if (_isSaving || _titleCtrl.text.trim().isEmpty) {
       _titleFocus.requestFocus();
       return;
+    }
+
+    final entry = widget.initialEntry;
+    
+    // 2. ONLY triggers for tasks that already exist AND are repeating tasks
+    final isExistingRecurring = entry != null && entry.repeatGroupId != null;
+    
+    int editScope = 0; // 0 = Normal/New/One-off, 1 = This Only, 2 = All Future
+
+    // 🛑 INTERCEPT: Ask the user ONLY if editing an existing repeating task
+    if (isExistingRecurring) {
+      final choice = await showDialog<int>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Edit Repeating Task', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          content: const Text('Do you want to apply these changes to this task only, or all future tasks in this series?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 0), // Cancel
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
+              onPressed: () => Navigator.pop(ctx, 1), // This Only
+              child: const Text('This Only'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
+              onPressed: () => Navigator.pop(ctx, 2), // All Future
+              child: const Text('All Future'),
+            ),
+          ],
+        ),
+      );
+
+      if (choice == null || choice == 0) return; // User cancelled the edit
+      editScope = choice;
     }
 
     setState(() => _isSaving = true);
 
     try {
       final day = ref.read(selectedDayProvider);
+      DateTime toDateTime(TimeOfDay t, DateTime d) => DateTime(d.year, d.month, d.day, t.hour, t.minute);
 
-      DateTime toDateTime(TimeOfDay t) =>
-          DateTime(day.year, day.month, day.day, t.hour, t.minute);
-
-      final startDt = toDateTime(_startTime);
-      final endDt = toDateTime(_endTime);
-
-      final String targetId = widget.initialEntry?.id ?? 
-          'entry_${DateTime.now().millisecondsSinceEpoch}';
-
-      final entry = PlannerModel(
-        id: targetId,
-        title: _titleCtrl.text.trim(),
-        startTime: startDt,
-        endTime: endDt,
-        isDone: widget.initialEntry?.isDone ?? false,
-        isNotified: _notifyMe,
-        isTimeLocked: _isTimeLocked,
-        repeatInterval: _repeatInterval,
-        customInterval: _customInterval,
-      );
-
-      await FirestoreService.instance.saveTask(entry);
+      final String baseId = entry?.id ?? 'entry_${DateTime.now().millisecondsSinceEpoch}';
       
-      // FIX: Apply identical 32-bit integer compression constraints
-      final rawDigits = targetId.replaceAll(RegExp(r'[^0-9]'), '');
-      final parsedInt = int.tryParse(rawDigits);
-      
-      final int stableNotificationId = parsedInt != null 
-          ? (parsedInt % 2147483647) 
-          : targetId.hashCode;
-      
-      await NotificationService.instance.cancelNotification(stableNotificationId);
-
-      if (_notifyMe) {
-        unawaited(
-          NotificationService.instance.scheduleNotification(
-            id: stableNotificationId,
-            title: '$appName Reminder',
-            body: _titleCtrl.text.trim(),
-            scheduledTime: startDt,
-          ),
-        );
+      // If adding repeat to a normal one-off task, initialize a group ID
+      String? groupId = entry?.repeatGroupId;
+      if (groupId == null && _repeatInterval != RepeatInterval.none) {
+        groupId = 'grp_$baseId';
       }
 
+      List<PlannerModel> tasksToSave = [];
+      DateTime currentDay = day;
+
+      // How many instances to generate?
+      // Generate 7 if it's a NEW repeating task, or if we are editing ALL FUTURE tasks.
+      // Otherwise (one-off tasks or "This Only" edits), just generate 1.
+      int instanceCount = (editScope == 2 || (editScope == 0 && _repeatInterval != RepeatInterval.none)) ? 7 : 1;
+
+      for (int i = 0; i < instanceCount; i++) {
+        final startDt = toDateTime(_startTime, currentDay);
+        final endDt = toDateTime(_endTime, currentDay);
+        
+        // If 'This Only' or first item, keep the exact original ID. Else, append index.
+        final instanceId = (editScope == 1 || i == 0) ? baseId : '${baseId}_$i';
+
+        final entryToSave = PlannerModel(
+          id: instanceId,
+          title: _titleCtrl.text.trim(),
+          startTime: startDt,
+          endTime: endDt,
+          isDone: i == 0 ? (entry?.isDone ?? false) : false,
+          isNotified: _notifyMe,
+          isTimeLocked: _isTimeLocked,
+          // If 'This Only', keep original interval. If 'All Future' or New, use the new setting.
+          repeatInterval: editScope == 1 ? entry!.repeatInterval : _repeatInterval,
+          customInterval: editScope == 1 ? entry!.customInterval : _customInterval,
+          repeatGroupId: groupId,
+        );
+        
+        tasksToSave.add(entryToSave);
+
+        // Schedule Notification
+        if (_notifyMe) {
+          final rawDigits = instanceId.replaceAll(RegExp(r'[^0-9]'), '');
+          final parsedInt = int.tryParse(rawDigits);
+          final int stableNotificationId = parsedInt != null ? (parsedInt % 2147483647) : instanceId.hashCode;
+          
+          await NotificationService.instance.cancelNotification(stableNotificationId);
+          unawaited(NotificationService.instance.scheduleNotification(
+            id: stableNotificationId,
+            title: 'Cheq Reminder',
+            body: entryToSave.title,
+            scheduledTime: startDt,
+          ));
+        }
+
+        // Advance day for next loop
+        if (_repeatInterval == RepeatInterval.daily) {
+          currentDay = currentDay.add(const Duration(days: 1));
+        } else if (_repeatInterval == RepeatInterval.weekly) {
+          currentDay = currentDay.add(const Duration(days: 7));
+        } else if (_repeatInterval == RepeatInterval.monthly) {
+          currentDay = DateTime(currentDay.year, currentDay.month + 1, currentDay.day);
+        } else if (_repeatInterval == RepeatInterval.custom && _customInterval != null) {
+          currentDay = currentDay.add(_customInterval!);
+        }
+      }
+
+      // 🧹 CLEANUP: If 'All Future' was selected, nuke the old future instances 
+      // before saving the newly generated ones so we don't get duplicates.
+      if (editScope == 2 && entry != null) {
+        await FirestoreService.instance.deleteRecurringTaskGroup(groupId!, entry.startTime);
+      }
+
+      // 🌊 Save the whole batch
+      await FirestoreService.instance.saveTasksBatch(tasksToSave);
       _syncNativeAlarms(ref);
 
-      if (mounted) {
-        Navigator.pop(context);
-      }
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint("Error inside save calculation routine: $e");
     } finally {

@@ -274,6 +274,42 @@ class FirestoreService {
       debugPrint("Batch update failed: $e");
     }
   }
+  /// 🗑️ DELETES A SPECIFIC TASK OR ALL FUTURE RECURRING TASKS
+  Future<void> deleteRecurringTaskGroup(String groupId, DateTime fromDate) async {
+    final ref = _plannerRef;
+    if (ref == null) return;
+
+    try {
+      final snapshot = await ref.where('repeatGroupId', isEqualTo: groupId).get();
+      final batch = _db.batch();
+      bool changed = false;
+
+      for (var doc in snapshot.docs) {
+        final taskStartTime = DateTime.parse(doc.data()['startTime']);
+        
+        // Only delete tasks that are scheduled FOR or AFTER the selected date
+        if (!taskStartTime.isBefore(DateTime(fromDate.year, fromDate.month, fromDate.day))) {
+          batch.delete(doc.reference);
+          changed = true;
+           // Clean up notifications for deleted tasks
+          final rawDigits = doc.id.replaceAll(RegExp(r'[^0-9]'), '');
+          final parsedInt = int.tryParse(rawDigits);
+          final int stableId = parsedInt != null ? (parsedInt % 2147483647) : doc.id.hashCode;
+          await NotificationService.instance.cancelNotification(stableId);
+        }
+      }
+
+      if (changed) {
+        await batch.commit();
+        // Sync widgets after massive deletion
+        final refreshed = await ref.get();
+        final refreshedTasks = refreshed.docs.map((d) => PlannerModel.fromMap(d.data())).toList();
+        _processAndSyncWidgets(refreshedTasks);
+      }
+    } catch (e) {
+      debugPrint("Failed to delete recurring group: $e");
+    }
+  }
 }
 
 // Helper utility for fire-and-forget background cleanup tasks
