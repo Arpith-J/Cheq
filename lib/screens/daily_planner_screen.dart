@@ -9,6 +9,8 @@ import '../utils/liquid_rescheduler.dart';
 import '../widgets/week_header.dart';
 import '../widgets/planner/add_task_sheet.dart';
 import '../widgets/planner/task_feed.dart';
+import '../providers/ai_settings_provider.dart';
+import '../utils/ai_rescheduler.dart';
 
 class DailyPlannerScreen extends ConsumerStatefulWidget {
   const DailyPlannerScreen({super.key});
@@ -83,12 +85,38 @@ class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen> with Wi
               final startFrom = isToday ? now : DateTime(day.year, day.month, day.day);
               final currentTasks = ref.read(selectedDayEntriesProvider);
               
-              await LiquidRescheduler.rebalance(currentTasks, startFrom);
+              final aiSettings = ref.read(aiSettingsProvider);
+              bool aiSuccess = false;
+
+              // ATTEMPT AI RESCHEDULER FIRST
+              if (aiSettings.isAiEnabled && aiSettings.apiKey != null && aiSettings.apiKey!.isNotEmpty) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Gemini is reorganizing your day... 🧠✨'),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                }
+                
+                aiSuccess = await AiRescheduler.rebalanceWithAi(
+                  todaysTasks: currentTasks,
+                  startFrom: startFrom,
+                  apiKey: aiSettings.apiKey!,
+                );
+              }
+              
+              // 💧 FALLBACK TO LIQUID ALGORITHM
+              if (!aiSuccess) {
+                await LiquidRescheduler.rebalance(currentTasks, startFrom);
+              }
               
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: const Text('Schedule smoothly rebalanced! ✨'),
+                    content: Text(aiSuccess ? 'Schedule optimized by AI! 🚀' : 'Schedule smoothly rebalanced! ✨'),
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
