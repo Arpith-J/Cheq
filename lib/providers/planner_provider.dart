@@ -78,3 +78,44 @@ class PlannerForDateNotifier extends Notifier<List<PlannerModel>> {
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
   }
 }
+final selectedDayProvider = NotifierProvider<SelectedDayNotifier, DateTime>(
+  SelectedDayNotifier.new,
+);
+
+class SelectedDayNotifier extends Notifier<DateTime> {
+  @override
+  DateTime build() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  void changeDay(DateTime newDay) {
+    state = DateTime(newDay.year, newDay.month, newDay.day);
+  }
+}
+
+final selectedDayEntriesProvider =
+    NotifierProvider<SelectedDayEntriesNotifier, List<PlannerModel>>(
+  SelectedDayEntriesNotifier.new,
+);
+
+class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
+  @override
+  List<PlannerModel> build() {
+    final day = ref.watch(selectedDayProvider);
+    final asyncEntries = ref.watch(firestorePlannerStreamProvider);
+    final entries = asyncEntries.value ?? [];
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    return entries.where((e) {
+      final taskDay = DateTime(e.startTime.year, e.startTime.month, e.startTime.day);
+      if (taskDay == day) return true;
+      if (day == today && taskDay.isBefore(today) && !e.isDone) {
+        return true;
+      }
+      return false;
+    }).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+  }
+}
