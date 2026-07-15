@@ -271,6 +271,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
+        child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
@@ -455,6 +456,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

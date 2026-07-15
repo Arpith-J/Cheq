@@ -61,10 +61,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/icon_moon.png"
+  image_path: "assets/images/icon_ariadne.png"
   # Optional: To support modern Android adaptive icons smoothly
   adaptive_icon_background: "#000000" # Your theme light surface hex
-  adaptive_icon_foreground: "assets/images/icon_moon.png"
+  adaptive_icon_foreground: "assets/images/icon_ariadne.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
