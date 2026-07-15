@@ -10,6 +10,7 @@ import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/week_header.dart';
 import 'auth_gate.dart';
+import '../utils/liquid_rescheduler.dart';
 
 
 final selectedDayProvider = NotifierProvider(
@@ -112,11 +113,50 @@ class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen>
           Expanded(child: _TaskFeed()),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'planner_fab',
-        onPressed: () => _openAddSheet(context, ref),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add Task'),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // THE MAGIC REBALANCE BUTTON
+          FloatingActionButton.small(
+            heroTag: 'rebalance_fab',
+            backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+            foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+            tooltip: 'Auto-Rebalance Schedule',
+            onPressed: () async {
+              final day = ref.read(selectedDayProvider);
+              final now = DateTime.now();
+              
+              // If they are looking at today, only shuffle tasks from this moment onward.
+              // If looking at a future day, shuffle from the beginning of that day.
+              final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
+              final startFrom = isToday ? now : DateTime(day.year, day.month, day.day);
+              
+              final currentTasks = ref.read(selectedDayEntriesProvider);
+              
+              await LiquidRescheduler.rebalance(currentTasks, startFrom);
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Schedule smoothly rebalanced! ✨'),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                );
+              }
+            },
+            child: const Icon(Icons.auto_fix_high_rounded),
+          ),
+          const SizedBox(height: 12),
+          // ➕ EXISTING ADD TASK BUTTON
+          FloatingActionButton.extended(
+            heroTag: 'planner_fab',
+            onPressed: () => _openAddSheet(context, ref),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add Task'),
+          ),
+        ],
       ),
     );
   }
@@ -419,6 +459,18 @@ class _TaskRowState extends ConsumerState<_TaskRow>
                               style: TextStyle(
                                   fontSize: 12, color: cs.onSurfaceVariant),
                             ),
+                            if (entry.isTimeLocked) ...[
+                              const SizedBox(width: 12),
+                              Icon(Icons.lock_rounded, size: 14, color: cs.primary),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Fixed',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: cs.primary,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ]
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -522,6 +574,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
 
   bool _isSaving = false;
   bool _notifyMe = false;
+  bool _isTimeLocked = false;
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   late RepeatInterval _repeatInterval;
@@ -536,6 +589,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
     _notifyMe = entry?.isNotified ?? false;
     _repeatInterval = entry?.repeatInterval ?? RepeatInterval.none;
     _customInterval = entry?.customInterval;
+    _isTimeLocked = entry?.isTimeLocked ?? false;
 
     if (entry != null) {
       _startTime = TimeOfDay.fromDateTime(entry.startTime);
@@ -651,6 +705,7 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
         endTime: endDt,
         isDone: widget.initialEntry?.isDone ?? false,
         isNotified: _notifyMe,
+        isTimeLocked: _isTimeLocked,
         repeatInterval: _repeatInterval,
         customInterval: _customInterval,
       );
@@ -827,6 +882,30 @@ class _AddTaskSheetState extends ConsumerState<_AddTaskSheet> {
                           ),
                         );
                       }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _isTimeLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                      size: 18,
+                      color: _isTimeLocked ? cs.primary : cs.onSurface.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text('Lock Time (Fixed)'),
+                    const Spacer(),
+                    Switch.adaptive(
+                      value: _isTimeLocked,
+                      onChanged: (v) => setState(() => _isTimeLocked = v),
                     ),
                   ],
                 ),
