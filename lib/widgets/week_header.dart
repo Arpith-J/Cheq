@@ -102,14 +102,22 @@ class WeekHeaderState extends ConsumerState<WeekHeader> {
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: weekDays.map((day) {
-                    final isSelected = _sameDay(day, selected);
+                    final isSelected = _sameDay(day, selected); 
+
+                    // 2. Check if this day is today
                     final isToday = _sameDay(day, DateTime.now());
-                    final pendingCount = allEntries.where((e) {
-                      return e.startTime.year == day.year &&
-                             e.startTime.month == day.month &&
-                             e.startTime.day == day.day &&
-                             !e.isDone;
-                    }).length;
+
+                    // 3. Grab the tasks specifically for this day
+                    final tasksForDay = allEntries.where((t) =>
+                        t.startTime.year == day.year &&
+                        t.startTime.month == day.month &&
+                        t.startTime.day == day.day).toList();
+
+                    // 4. Calculate how many of those specific tasks are overdue
+                    final now = DateTime.now();
+                    final overdueCount = tasksForDay.where((task) {
+                      return !task.isDone && now.isAfter(task.endTime);
+                    }).length;  
 
                     return GestureDetector(
                       onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
@@ -144,9 +152,9 @@ class WeekHeaderState extends ConsumerState<WeekHeader> {
                             ),
                             const SizedBox(height: 4),
                             Badge(
-                              isLabelVisible: pendingCount > 0 && showBadges, // Only shows if count > 0
+                              isLabelVisible: overdueCount > 0 && showBadges, // Only shows if count > 0
                               label: Text(
-                                '$pendingCount', 
+                                '$overdueCount', 
                                 style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)
                               ),
                               backgroundColor: Colors.redAccent, 

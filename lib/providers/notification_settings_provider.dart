@@ -4,8 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/notification_service.dart';
 import '../services/firestore_service.dart';
-import '../screens/auth_gate.dart'; 
 
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class NotificationConfig {
   final bool morningEnabled;
   final TimeOfDay morningTime;
@@ -140,7 +140,7 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
     NotificationService.instance.scheduleDailyBriefing(
       id: eveningNotificationId,
       time: state.eveningTime,
-      title: 'Moon Review',
+      title: '$appName Review',
       body: body,
     );
   }
