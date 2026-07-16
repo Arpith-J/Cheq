@@ -139,35 +139,41 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     int editScope = 0; 
 
     if (isExistingRecurring) {
-      final choice = await showDialog<int>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Edit Repeating Task', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          content: const Text('Do you want to apply these changes to this task only, or all future tasks in this series?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, 0),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
-              onPressed: () => Navigator.pop(ctx, 1),
-              child: const Text('This Only'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+      // 1. Intercept repeat changes so we don't ask unnecessarily
+      if (entry.repeatInterval != _repeatInterval) {
+        editScope = 2; // Automatically target future tasks to cleanly rebuild or delete them
+      } else {
+        // Only ask if repeat interval is the SAME but other metadata changed
+        final choice = await showDialog<int>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Edit Repeating Task', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            content: const Text('Do you want to apply these changes to this task only, or all future tasks in this series?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 0),
+                child: const Text('Cancel'),
               ),
-              onPressed: () => Navigator.pop(ctx, 2),
-              child: const Text('All Future'),
-            ),
-          ],
-        ),
-      );
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
+                onPressed: () => Navigator.pop(ctx, 1),
+                child: const Text('This Only'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+                onPressed: () => Navigator.pop(ctx, 2),
+                child: const Text('All Future'),
+              ),
+            ],
+          ),
+        );
 
-      if (choice == null || choice == 0) return; 
-      editScope = choice;
+        if (choice == null || choice == 0) return; 
+        editScope = choice;
+      }
     }
 
     setState(() => _isSaving = true);
@@ -179,14 +185,22 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       final String baseId = entry?.id ?? 'entry_${DateTime.now().millisecondsSinceEpoch}';
       
       String? groupId = entry?.repeatGroupId;
-      if (groupId == null && _repeatInterval != RepeatInterval.none) {
+      
+      // 2. Detach from group if repeat is now turned off
+      if (_repeatInterval == RepeatInterval.none && editScope == 2) {
+        groupId = null; 
+      } else if (groupId == null && _repeatInterval != RepeatInterval.none) {
         groupId = 'grp_$baseId';
       }
 
       List<PlannerModel> tasksToSave = [];
       DateTime currentDay = day;
 
-      int instanceCount = (editScope == 2 || (editScope == 0 && _repeatInterval != RepeatInterval.none)) ? 7 : 1;
+      // 3. FIX: Only generate 7 instances if it is ACTUALLY repeating
+      int instanceCount = 1;
+      if (_repeatInterval != RepeatInterval.none && (editScope == 2 || editScope == 0)) {
+        instanceCount = 7;
+      }
 
       for (int i = 0; i < instanceCount; i++) {
         final startDt = toDateTime(_startTime, currentDay);
@@ -217,7 +231,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
           await NotificationService.instance.cancelNotification(stableNotificationId);
           unawaited(NotificationService.instance.scheduleNotification(
             id: stableNotificationId,
-            title: 'Cheq Reminder',
+            title: '$appName Reminder', 
             body: entryToSave.title,
             scheduledTime: startDt,
           ));
@@ -234,8 +248,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         }
       }
 
+      // 4. FIX: Safely use the old group ID to delete the old future tasks
       if (editScope == 2 && entry != null) {
-        await FirestoreService.instance.deleteRecurringTaskGroup(groupId!, entry.startTime);
+        await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
       }
 
       await FirestoreService.instance.saveTasksBatch(tasksToSave);

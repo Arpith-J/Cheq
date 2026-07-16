@@ -85,7 +85,7 @@ class SettingsScreen extends ConsumerWidget {
                     children: [
                       Text("App Theme Accent", style: TextStyle(fontWeight: FontWeight.w600)),
                       SizedBox(height: 16),
-                      ThemePickerRow(), // 🌟 Your modular colour picker!
+                      ThemePickerRow(), //  Your modular colour picker!
                       
                     ],
                   ),

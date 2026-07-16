@@ -274,6 +274,80 @@ class FirestoreService {
       debugPrint("Batch update failed: $e");
     }
   }
+  /// 🧠 BATCH UPDATE FOR AI RESCHEDULER (HANDLES TASK SPLITTING)
+  Future<void> saveAndCleanTasksBatch(List<PlannerModel> tasksToSave, List<String> taskIdsToDelete) async {
+    final ref = _plannerRef;
+    if (ref == null) return;
+
+    try {
+      final batch = _db.batch();
+      
+      // 1. Delete original tasks that were split by the AI
+      for (final id in taskIdsToDelete) {
+        batch.delete(ref.doc(id));
+        
+        // Clean up old notifications
+        final rawDigits = id.replaceAll(RegExp(r'[^0-9]'), '');
+        final parsedInt = int.tryParse(rawDigits);
+        if (parsedInt != null) {
+          await NotificationService.instance.cancelNotification(parsedInt % 2147483647);
+        }
+      }
+
+      // 2. Save shifted tasks and newly split parts
+      for (final task in tasksToSave) {
+        batch.set(ref.doc(task.id), task.toMap(), SetOptions(merge: true));
+        
+        if (task.isNotified) {
+          final rawDigits = task.id.replaceAll(RegExp(r'[^0-9]'), '');
+          final parsedInt = int.tryParse(rawDigits);
+          final int stableId = parsedInt != null ? (parsedInt % 2147483647) : task.id.hashCode;
+          
+          await NotificationService.instance.cancelNotification(stableId);
+          unawaited(NotificationService.instance.scheduleNotification(
+            id: stableId,
+            title: 'Cheq Reminder',
+            body: task.title,
+            scheduledTime: task.startTime,
+          ));
+        }
+      }
+      
+      await batch.commit();
+      debugPrint("🧠 AI Rescheduler: Saved ${tasksToSave.length} tasks, Deleted ${taskIdsToDelete.length} split originals.");
+    } catch (e) {
+      debugPrint("Batch update & clean failed: $e");
+    }
+  }
+
+  /// ⏪ RESTORES PREVIOUS STATE IF USER HITS UNDO
+  Future<void> undoAiReschedule({
+    required List<PlannerModel> originalTasks,
+    required List<String> newlyCreatedSplitIds,
+  }) async {
+    final ref = _plannerRef;
+    if (ref == null) return;
+
+    try {
+      final batch = _db.batch();
+
+      // 1. Delete the fragments the AI just created
+      for (final splitId in newlyCreatedSplitIds) {
+        batch.delete(ref.doc(splitId));
+      }
+
+      // 2. Restore the original tasks exactly as they were
+      for (final original in originalTasks) {
+        batch.set(ref.doc(original.id), original.toMap(), SetOptions(merge: true));
+      }
+
+      await batch.commit();
+      debugPrint("⏪ AI Reschedule Undone. Restored ${originalTasks.length} tasks.");
+    } catch (e) {
+      debugPrint("Undo failed: $e");
+    }
+  }
+  
   /// 🗑️ DELETES A SPECIFIC TASK OR ALL FUTURE RECURRING TASKS
   Future<void> deleteRecurringTaskGroup(String groupId, DateTime fromDate) async {
     final ref = _plannerRef;
