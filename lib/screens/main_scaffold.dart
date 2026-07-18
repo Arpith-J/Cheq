@@ -110,14 +110,37 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
 
         // Centre — dynamic tab title
         title: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: Text(
-            _tabs[_selectedIndex].label,
-            key: ValueKey(_selectedIndex),
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight:   FontWeight.w700,
-              color:        cs.onSurface,
-              letterSpacing: -0.4,
+          duration: const Duration(milliseconds: 350),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+            return Stack(
+              alignment: Alignment.centerLeft,
+              children: <Widget>[
+                ...previousChildren,
+                if (currentChild != null) currentChild,
+              ],
+            );
+          },
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.0, 0.2), // Slides up slightly
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            );
+          },
+          // The ValueKey is CRITICAL. It tells Flutter the text actually changed so it triggers the animation
+          child: SizedBox(
+            key: ValueKey<int>(_selectedIndex),
+            width: 120, // Wide enough to hold 'Planner' and 'Rewards' without wrapping
+            child: Text(
+              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Rewards'),
+              style: const TextStyle(fontWeight: FontWeight.bold), 
             ),
           ),
         ),

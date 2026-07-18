@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firestore_service.dart';
+import '../main.dart';
 
 const List<Color> appAccentSwatches = [
   Color(0xff4caf50), // 0. Default Cheq Green
@@ -20,30 +21,41 @@ final customAccentProvider = NotifierProvider<CustomAccentNotifier, Color>(
 class CustomAccentNotifier extends Notifier<Color> {
   @override
   Color build() {
+    // 1. Instantly load the cached color on boot (Zero network delay = zero flash!)
+    final prefs = ref.watch(sharedPrefsProvider);
+    final hexString = prefs.getString('themeColorHex');
+
+    if (hexString != null) {
+      return Color(int.parse(hexString, radix: 16));
+    }
     return appAccentSwatches.first;
   }
 
   void updateAccentColor(Color newColor) {
     state = newColor;
+    final hexString = newColor.value.toRadixString(16);
+    
+    // 2. Save it locally immediately so it's ready for the next app launch
+    ref.read(sharedPrefsProvider).setString('themeColorHex', hexString);
+
+    // 3. Keep your existing background sync to Firebase
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
-      // Convert the color to a readable Hex string (e.g., "ff4caf50")
-      final hexString = newColor.value.toRadixString(16);
       FirestoreService.instance.saveUserSettings(uid, {
         'themeColorHex': hexString,
       });
     }
   }
 
+  // 4. Update your load method to ensure cloud changes sync down to local storage
   Future<void> loadSettings(String uid) async {
     final settings = await FirestoreService.instance.getUserSettings(uid);
-    if (settings != null && settings['themeColorHex'] != null) {
-      try {
-        final hexInt = int.parse(settings['themeColorHex'], radix: 16);
-        state = Color(hexInt);
-      } catch (e) {
-        debugPrint("Error parsing saved theme color: $e");
-      }
+    if (settings != null && settings.containsKey('themeColorHex')) {
+      final hexString = settings['themeColorHex'] as String;
+      state = Color(int.parse(hexString, radix: 16));
+      
+      // Sync cloud truth to local cache
+      ref.read(sharedPrefsProvider).setString('themeColorHex', hexString);
     }
   }
 }
