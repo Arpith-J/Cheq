@@ -20,46 +20,43 @@ class FirestoreService {
     return _db.collection('users').doc(user.uid).collection('planner');
   }
 
-  /// 🧹 AUTOMATIC 3-DAY CLEANUP CYCLE
+  /// 🧹 AUTOMATIC 2-DAY CLEANUP CYCLE
   /// Finds all tasks marked as completed ('isDone == true') whose scheduled 
-  /// date is older than 3 days relative to today and deletes them.
+  /// date is older than 2 days relative to today and deletes them.
   Future<void> runAutomaticDataCleanup(List<PlannerModel> allTasks) async {
     final ref = _plannerRef;
     if (ref == null) return;
 
     try {
       final now = DateTime.now();
-      final thresholdDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 3));
+      // Changed to 2 days
+      final thresholdDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 2));
 
-      // Filter tasks to find completed tasks that scheduled 3+ days before today
-      final tasksToPurge = allTasks.where((task) {
-        if (!task.isDone) return false;
+      // Filter tasks to find completed ones older than 2 days
+      final tasksToDelete = allTasks.where((task) {
         final taskDate = DateTime(task.startTime.year, task.startTime.month, task.startTime.day);
-        return taskDate.isBefore(thresholdDate);
+        return task.isDone && taskDate.isBefore(thresholdDate);
       }).toList();
 
-      if (tasksToPurge.isEmpty) return;
+      if (tasksToDelete.isEmpty) return;
 
-      debugPrint("🧹 Found ${tasksToPurge.length} completed tasks older than 3 days. Initiating cleanup...");
-
-      // Execute batches/deletions in parallel safely
-      await Future.wait(tasksToPurge.map((task) async {
-        // Cancel notification structures
+      final batch = _db.batch();
+      
+      for (final task in tasksToDelete) {
+        batch.delete(ref.doc(task.id));
+        
+        // Clean up any lingering native notifications just in case
         final rawDigits = task.id.replaceAll(RegExp(r'[^0-9]'), '');
         final parsedInt = int.tryParse(rawDigits);
-        final int stableNotificationId = parsedInt != null 
-            ? (parsedInt % 2147483647) 
-            : task.id.hashCode;
+        if (parsedInt != null) {
+          await NotificationService.instance.cancelNotification(parsedInt % 2147483647);
+        }
+      }
 
-        await NotificationService.instance.cancelNotification(stableNotificationId);
-        
-        // Delete from Firestore database
-        await ref.doc(task.id).delete();
-        debugPrint("🗑️ Purged task: '${task.title}' (Scheduled: ${task.startTime})");
-      }));
-
+      await batch.commit();
+      debugPrint("🧹 Background Cleanup: Purged ${tasksToDelete.length} old completed tasks.");
     } catch (e) {
-      debugPrint("⚠️ Automatic 3-day cleanup routine encountered an error: $e");
+      debugPrint("Background cleanup failed: $e");
     }
   }
 

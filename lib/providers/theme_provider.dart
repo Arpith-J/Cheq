@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firestore_service.dart';
+import '../main.dart'; // Import this to access sharedPrefsProvider
 
 // The Riverpod 3.x compliant theme notifier
 final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(
@@ -11,12 +12,24 @@ final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(
 
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
-  ThemeMode build() => ThemeMode.light; // Baseline starting theme
+  ThemeMode build() {
+    // 1. Instantly load the cached theme on boot (Zero network delay = zero flash!)
+    final prefs = ref.watch(sharedPrefsProvider);
+    final isDark = prefs.getBool('isDarkMode');
+    
+    if (isDark != null) {
+      return isDark ? ThemeMode.dark : ThemeMode.light;
+    }
+    return ThemeMode.light; // Baseline starting theme
+  }
 
   void toggleTheme() {
     state = state == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
     
-    // 🌟 Save the choice to Firebase immediately
+    // 2. Save it locally immediately so it's ready for the next app launch
+    ref.read(sharedPrefsProvider).setBool('isDarkMode', state == ThemeMode.dark);
+
+    // 3. Keep your existing background sync to Firebase
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
       FirestoreService.instance.saveUserSettings(uid, {
@@ -25,11 +38,15 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
     }
   }
 
-  // 🌟 Load it on app boot
+  // 4. Update your load method to ensure cloud changes sync down to local storage
   Future<void> loadSettings(String uid) async {
     final settings = await FirestoreService.instance.getUserSettings(uid);
     if (settings != null && settings.containsKey('isDarkMode')) {
-      state = (settings['isDarkMode'] as bool) ? ThemeMode.dark : ThemeMode.light;
+      final isDark = settings['isDarkMode'] as bool;
+      state = isDark ? ThemeMode.dark : ThemeMode.light;
+      
+      // Sync cloud truth to local cache
+      ref.read(sharedPrefsProvider).setBool('isDarkMode', isDark);
     }
   }
 }

@@ -3,7 +3,13 @@ import '../models/planner_model.dart';
 import '../services/firestore_service.dart';
 
 final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>((ref) {
-  return FirestoreService.instance.streamPlannerEntries();
+  final stream = FirestoreService.instance.streamPlannerEntries();
+  stream.listen((tasks) {
+    Future.microtask(() {
+      FirestoreService.instance.runAutomaticDataCleanup(tasks);
+    });
+  });
+  return stream;
 });
 
 class PlannerNotifier extends Notifier<List<PlannerModel>> {

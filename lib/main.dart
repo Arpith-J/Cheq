@@ -7,20 +7,30 @@ import 'screens/auth_gate.dart';
 import 'package:cheq/providers/theme_provider.dart'; 
 import 'package:cheq/providers/custom_theme_provider.dart';
 import '../services/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+final sharedPrefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
   try {
     await Future.wait([
       Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
       NotificationService.instance.initialize(),
-    ]).timeout(const Duration(seconds: 6));
+    ]).timeout(const Duration(seconds: 2));
   } catch (e) {
     debugPrint("Core initialization exception or timeout caught: $e");
   }
   // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   // await NotificationService.instance.initialize();
-  runApp(const ProviderScope(child: CheqApp()));
+  runApp(
+    ProviderScope(
+      overrides: [sharedPrefsProvider.overrideWithValue(prefs),
+      ],
+      child: const CheqApp(),
+    ),
+  );
 }
 
 

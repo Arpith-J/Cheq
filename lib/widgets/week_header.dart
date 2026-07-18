@@ -13,11 +13,27 @@ class WeekHeader extends ConsumerStatefulWidget {
 
 class WeekHeaderState extends ConsumerState<WeekHeader> {
   late PageController _pageController;
+  
+  // A fixed Monday in the past to act as an anchor point for our infinite math
+  final DateTime _anchorDate = DateTime(2024, 1, 1); 
+
+  int _calculatePageIndex(DateTime date) {
+    // Find the Monday of the requested week
+    final dateMonday = DateTime(date.year, date.month, date.day).subtract(Duration(days: date.weekday - 1));
+    final daysDiff = dateMonday.difference(_anchorDate).inDays;
+    return 5000 + (daysDiff ~/ 7); // Center the user around page 5000
+  }
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 1);
+    _pageController = PageController(initialPage: 5000); // Start safely in the middle
+    
+    // Jump to the currently selected week immediately on first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final initialDay = ref.read(selectedDayProvider);
+      _pageController.jumpToPage(_calculatePageIndex(initialDay));
+    });
   }
 
   @override
@@ -34,6 +50,19 @@ class WeekHeaderState extends ConsumerState<WeekHeader> {
     final asyncEntries = ref.watch(firestorePlannerStreamProvider);
     final allEntries = asyncEntries.value ?? [];
     final showBadges = ref.watch(notificationSettingsProvider).showTaskBadges;
+
+    // 🌟 SMOOTH SYNC: If the user picks a date via Calendar or "Today" button, animate to it!
+    ref.listen<DateTime>(selectedDayProvider, (previous, current) {
+      final targetPage = _calculatePageIndex(current);
+      if (_pageController.hasClients && _pageController.page?.round() != targetPage) {
+        _pageController.animateToPage(
+          targetPage,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    });
+
     return Container(
       color: cs.surface,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -65,7 +94,6 @@ class WeekHeaderState extends ConsumerState<WeekHeader> {
                     onPressed: () {
                       final today = DateTime.now();
                       ref.read(selectedDayProvider.notifier).changeDay(today);
-                      _pageController.jumpToPage(1);
                     },
                     icon: Icon(Icons.today_rounded, size: 16, color: cs.onPrimaryContainer),
                     label: Text(
@@ -86,93 +114,79 @@ class WeekHeaderState extends ConsumerState<WeekHeader> {
             height: 64,
             child: PageView.builder(
               controller: _pageController,
-              itemCount: 3,
+              // No itemCount! It scrolls infinitely
               onPageChanged: (int pageIndex) {
-                if (pageIndex == 1) return;
-                final weekOffset = pageIndex == 2 ? 7 : -7;
-                final targetDay = selected.add(Duration(days: weekOffset));
-                ref.read(selectedDayProvider.notifier).changeDay(targetDay);
-                _pageController.jumpToPage(1);
+                // When swiping finishes, cleanly update the selected day to the new week
+                final weeksDiff = pageIndex - 5000;
+                final targetMonday = _anchorDate.add(Duration(days: weeksDiff * 7));
+                final targetDay = targetMonday.add(Duration(days: selected.weekday - 1));
+                
+                if (!_sameDay(selected, targetDay)) {
+                  ref.read(selectedDayProvider.notifier).changeDay(targetDay);
+                }
               },
-              itemBuilder: (context, pageOffsetIndex) {
-                final weekShiftDays = (pageOffsetIndex - 1) * 7;
-                final targetCalculatedDay = selected.add(Duration(days: weekShiftDays));
-                final weekDays = _buildWeek(targetCalculatedDay);
+              itemBuilder: (context, pageIndex) {
+                final weeksDiff = pageIndex - 5000;
+                final targetMonday = _anchorDate.add(Duration(days: weeksDiff * 7));
+                final weekDays = List.generate(7, (i) => targetMonday.add(Duration(days: i)));
 
                 return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: weekDays.map((day) {
                     final isSelected = _sameDay(day, selected); 
-
-                    // 2. Check if this day is today
                     final isToday = _sameDay(day, DateTime.now());
-
-                    // 3. Grab the tasks specifically for this day
                     final tasksForDay = allEntries.where((t) =>
                         t.startTime.year == day.year &&
                         t.startTime.month == day.month &&
                         t.startTime.day == day.day).toList();
 
-                    // 4. Calculate how many of those specific tasks are overdue
                     final now = DateTime.now();
                     final overdueCount = tasksForDay.where((task) {
                       return !task.isDone && now.isAfter(task.endTime);
                     }).length;  
 
-                    return GestureDetector(
-                      onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutCubic,
-                        width: 40,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? cs.primary
-                              : isToday
-                                  ? cs.primaryContainer
-                                  : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              _weekdayShort(day),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.3,
-                                color: isSelected
-                                    ? cs.onPrimary
-                                    : isToday
-                                        ? cs.onPrimaryContainer
-                                        : cs.onSurface.withValues(alpha: 0.55),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Badge(
-                              isLabelVisible: overdueCount > 0 && showBadges, // Only shows if count > 0
-                              label: Text(
-                                '$overdueCount', 
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)
-                              ),
-                              backgroundColor: Colors.redAccent, 
-                              offset: const Offset(8, -8), // Pushes the badge up and to the right
-                              child: Text(
-                                '${day.day}',
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () => ref.read(selectedDayProvider.notifier).changeDay(day),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeOutCubic,
+                          width: 40,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: isSelected ? cs.primary : isToday ? cs.primaryContainer : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                _weekdayShort(day),
                                 style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.3,
                                   color: isSelected
                                       ? cs.onPrimary
-                                      : isToday
-                                          ? cs.onPrimaryContainer
-                                          : cs.onSurface,
+                                      : isToday ? cs.onPrimaryContainer : cs.onSurface.withValues(alpha: 0.55),
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 4),
+                              Badge(
+                                isLabelVisible: overdueCount > 0 && showBadges,
+                                label: Text('$overdueCount', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                backgroundColor: Colors.redAccent, 
+                                offset: const Offset(8, -8), 
+                                child: Text(
+                                  '${day.day}',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: isSelected ? cs.onPrimary : isToday ? cs.onPrimaryContainer : cs.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -186,11 +200,6 @@ class WeekHeaderState extends ConsumerState<WeekHeader> {
         ],
       ),
     );
-  }
-
-  List<DateTime> _buildWeek(DateTime day) {
-    final monday = day.subtract(Duration(days: day.weekday - 1));
-    return List.generate(7, (i) => monday.add(Duration(days: i)));
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
