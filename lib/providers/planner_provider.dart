@@ -1,15 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
 import '../services/firestore_service.dart';
+import 'task_settings_provider.dart';
 
 final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>((ref) {
-  final stream = FirestoreService.instance.streamPlannerEntries();
-  stream.listen((tasks) {
-    Future.microtask(() {
-      FirestoreService.instance.runAutomaticDataCleanup(tasks);
-    });
-  });
-  return stream;
+  return FirestoreService.instance.streamPlannerEntries();
 });
 
 class PlannerNotifier extends Notifier<List<PlannerModel>> {
@@ -111,6 +106,7 @@ class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
     final day = ref.watch(selectedDayProvider);
     final asyncEntries = ref.watch(firestorePlannerStreamProvider);
     final entries = asyncEntries.value ?? [];
+    final carryOverEnabled = ref.watch(carryOverTasksProvider);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
@@ -119,6 +115,9 @@ class SelectedDayEntriesNotifier extends Notifier<List<PlannerModel>> {
       if (taskDay == day) return true;
       if (day == today && taskDay.isBefore(today) && !e.isDone) {
         return true;
+      }
+      if (day == today && taskDay.isBefore(today) && !e.isDone) {
+        return carryOverEnabled; 
       }
       return false;
     }).toList()
