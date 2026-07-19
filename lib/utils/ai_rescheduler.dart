@@ -5,7 +5,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import '../models/planner_model.dart';
 import '../services/firestore_service.dart';
 
-// 📸 1. THE NEW SNAPSHOT CLASS
+//SNAPSHOT CLASS
 class AiResult {
   final bool success;
   final List<PlannerModel> originalSnapshot;
@@ -113,7 +113,7 @@ Output STRICTLY a raw JSON array (NO markdown formatting, NO backticks) containi
       }
 
       if (tasksToSave.isNotEmpty || idsToDelete.isNotEmpty) {
-        // 📸 3. TAKE THE SNAPSHOT BEFORE RETURNING
+        //  TAKE THE SNAPSHOT BEFORE RETURNING
         final snapshotTasks = pendingTasks.where((t) => 
             tasksToSave.any((saved) => saved.id == t.id) || 
             idsToDelete.contains(t.id)
@@ -129,7 +129,7 @@ Output STRICTLY a raw JSON array (NO markdown formatting, NO backticks) containi
       return AiResult(true, [], []); 
 
     } catch (e) {
-      debugPrint("🤖 AI Rescheduler Failed: $e");
+      debugPrint(" AI Rescheduler Failed: $e");
       return AiResult(false, [], []); 
     }
   }

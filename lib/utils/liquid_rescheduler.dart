@@ -34,7 +34,7 @@ class LiquidRescheduler {
         }).toList();
 
         if (overlaps.isEmpty) {
-          // 🎉 Found an empty gap!
+          // Found an empty gap!
           updatedTasksToSave.add(flexTask.copyWith(
             startTime: timeCursor,
             endTime: proposedEnd,
@@ -42,7 +42,7 @@ class LiquidRescheduler {
           timeCursor = proposedEnd; // Move cursor to the end of this task
           slotFound = true;
         } else {
-          // 🚧 Hit a locked task. Jump the cursor to the end of that locked task.
+          // Hit a locked task. Jump the cursor to the end of that locked task.
           overlaps.sort((a, b) => b.endTime.compareTo(a.endTime));
           timeCursor = overlaps.first.endTime;
         }

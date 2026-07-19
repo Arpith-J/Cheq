@@ -7,11 +7,12 @@ import '../providers/theme_provider.dart';
 import '../providers/notification_settings_provider.dart';
 import '../widgets/theme_picker_row.dart';
 import '../widgets/settings/ai_settings_card.dart';
+import '../providers/task_settings_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  // 🌟 Dynamic Salutation Logic based on the user's picked time
+  // Dynamic Salutation Logic based on the user's picked time
   String _getSalutation(TimeOfDay time) {
     if (time.hour >= 4 && time.hour < 12) return "morning";
     if (time.hour >= 12 && time.hour < 16) return "afternoon";
@@ -44,9 +45,9 @@ class SettingsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // ── APPEARANCE SECTION ──
+          // ── APPEARANCE & PLANNER SECTION ──
           Text(
-            "Appearance",
+            "Appearance & Preferences",
             style: theme.textTheme.titleMedium?.copyWith(
               color: cs.primary,
               fontWeight: FontWeight.bold,
@@ -64,13 +65,13 @@ class SettingsScreen extends ConsumerWidget {
                   title: const Text("Dark Mode", style: TextStyle(fontWeight: FontWeight.w600)),
                   trailing: Switch.adaptive(
                     value: isDarkMode,
-                    activeColor: cs.primary,
+                    activeTrackColor: cs.primary, 
                     onChanged: (value) => ref.read(themeModeProvider.notifier).toggleTheme(),
                   ),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 SwitchListTile.adaptive(
-                  activeColor: cs.primary,
+                  activeTrackColor: cs.primary, 
                   title: const Text("Pending Task Badges", style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: const Text("Show a red counter on the calendar for unfinished tasks."),
                   value: notifConfig.showTaskBadges,
@@ -85,12 +86,42 @@ class SettingsScreen extends ConsumerWidget {
                     children: [
                       Text("App Theme Accent", style: TextStyle(fontWeight: FontWeight.w600)),
                       SizedBox(height: 16),
-                      ThemePickerRow(), //  Your modular colour picker!
-                      
+                      ThemePickerRow(), 
                     ],
                   ),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile.adaptive(
+                  activeTrackColor: cs.primary, 
+                  title: const Text('Carry Over Pending Tasks', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Automatically move unfinished tasks from past days to today.'),
+                  secondary: Icon(Icons.next_plan_rounded, color: Theme.of(context).colorScheme.primary),
+                  value: ref.watch(carryOverTasksProvider),
+                  onChanged: (val) {
+                    ref.read(carryOverTasksProvider.notifier).toggle(val);
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // ── SMART ASSISTANT SECTION ──
+          Text(
+            "Smart Assistant",
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: cs.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: const Column(
+              children: [
                 AiSettingsCard(),
               ],
             ),
@@ -115,14 +146,14 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 // Morning Overview Toggle
                 SwitchListTile.adaptive(
-                  activeColor: cs.primary,
+                  activeTrackColor: cs.primary, 
                   title: const Text("Morning Overview", style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text("Good ${_getSalutation(notifConfig.morningTime)} $firstName, you have tasks today."),
                   value: notifConfig.morningEnabled,
                   onChanged: (val) => notifNotifier.toggleMorning(val),
                   secondary: const Icon(Icons.wb_sunny_rounded, color: Colors.orange),
                 ),
-                // Morning Time Picker (Only shows if enabled)
+                // Morning Time Picker
                 AnimatedSize(
                   duration: const Duration(milliseconds: 250),
                   child: notifConfig.morningEnabled
@@ -151,14 +182,14 @@ class SettingsScreen extends ConsumerWidget {
 
                 // Evening Review Toggle
                 SwitchListTile.adaptive(
-                  activeColor: cs.primary,
+                  activeTrackColor: cs.primary,
                   title: const Text("Evening Review", style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text("Good ${_getSalutation(notifConfig.eveningTime)} $firstName, let's review your day."),
                   value: notifConfig.eveningEnabled,
                   onChanged: (val) => notifNotifier.toggleEvening(val),
                   secondary: const Icon(Icons.nights_stay_rounded, color: Colors.indigoAccent),
                 ),
-                // Evening Time Picker (Only shows if enabled)
+                // Evening Time Picker
                 AnimatedSize(
                   duration: const Duration(milliseconds: 250),
                   child: notifConfig.eveningEnabled
@@ -185,6 +216,7 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          const SizedBox(height: 32),
         ],
       ),
     );

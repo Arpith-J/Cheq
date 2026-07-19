@@ -253,7 +253,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
       }
 
-      await FirestoreService.instance.saveTasksBatch(tasksToSave);
+      unawaited(FirestoreService.instance.saveTasksBatch(tasksToSave));
       
       // Native Alarm Sync
       Future.microtask(() {
