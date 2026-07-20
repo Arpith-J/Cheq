@@ -20,7 +20,7 @@ class FirestoreService {
     return _db.collection('users').doc(user.uid).collection('planner');
   }
 
-  /// 🧹 AUTOMATIC 2-DAY CLEANUP CYCLE
+  /// AUTOMATIC 2-DAY CLEANUP CYCLE
   /// Finds all tasks marked as completed ('isDone == true') whose scheduled 
   /// date is older than 2 days relative to today and deletes them.
   Future<void> runAutomaticDataCleanup(List<PlannerModel> allTasks) async {
@@ -54,7 +54,7 @@ class FirestoreService {
       }
 
       await batch.commit();
-      debugPrint("🧹 Background Cleanup: Purged ${tasksToDelete.length} old completed tasks.");
+      debugPrint("Background Cleanup: Purged ${tasksToDelete.length} old completed tasks.");
     } catch (e) {
       debugPrint("Background cleanup failed: $e");
     }
@@ -149,7 +149,7 @@ class FirestoreService {
           // Run cleanup in parallel to save cycles
           runAutomaticDataCleanup(currentTasks);
         } catch (widgetError) {
-          debugPrint("⚠️ Background widget/cleanup error: $widgetError");
+          debugPrint("Background widget/cleanup error: $widgetError");
         }
       }
     } catch (e) {
@@ -157,7 +157,7 @@ class FirestoreService {
     }
   }
 
-  /// ❌ DELETE
+  /// DELETE
   Future<void> deleteTask(String taskId) async {
     try {
       final rawDigits = taskId.replaceAll(RegExp(r'[^0-9]'), '');

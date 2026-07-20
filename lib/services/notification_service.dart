@@ -29,7 +29,7 @@ class NotificationService {
 
     if (androidPlugin != null) {
       await androidPlugin.requestNotificationsPermission();
-      androidPlugin.requestExactAlarmsPermission();
+      await androidPlugin.requestExactAlarmsPermission();
     }
 
     await _plugin.initialize(
