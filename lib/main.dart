@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,33 +8,59 @@ import 'firebase_options.dart';
 import 'screens/auth_gate.dart';
 import 'providers/theme_provider.dart'; 
 import 'providers/custom_theme_provider.dart';
+import 'providers/notification_settings_provider.dart'; 
+import 'providers/planner_provider.dart';
 import '../services/notification_service.dart';
 
 final sharedPrefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
 
 void main() async {
-  // 1. Initialize Flutter bindings so native code can be called
+  // 1. Initialize Flutter bindings
   WidgetsFlutterBinding.ensureInitialized();
   
   // 2. Load preferences instantly
   final prefs = await SharedPreferences.getInstance();
   
-  // 3. Boot heavy services in the background while the OS holds your native splash screen!
+  // 3. Boot Firebase
   try {
-    await Future.wait([
-      Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
-      NotificationService.instance.initialize(),
-    ]).timeout(const Duration(seconds: 3));
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+        .timeout(const Duration(seconds: 3));
   } catch (e) {
-    debugPrint("Core initialization exception or timeout caught: $e");
+    debugPrint("Firebase initialization exception or timeout caught: $e");
   }
 
-  // 4. Paint the app. The native black splash screen vanishes exactly on this line.
+  // 4. Fire and forget notifications
+  NotificationService.instance.initialize().catchError((e) {
+    debugPrint("Notification initialization failed: $e");
+  });
+
+  //  5. CREATE STANDALONE RIVERPOD CONTAINER
+  final container = ProviderContainer(
+    overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+  );
+
+  // 6. PRE-WARM THE UI STATE (Prevents Layout Shift / Pop-in)
+  final user = FirebaseAuth.instance.currentUser;
+  if (user != null) {
+    try {
+      // A. Load user preferences instantly
+      container.read(customAccentProvider.notifier).loadSettings(user.uid);
+      container.read(notificationSettingsProvider.notifier).loadSettings(user.uid);
+      
+      // B. Force Firestore to load local task cache BEFORE drawing the screen
+      // We give it a tiny 500ms timeout just in case, so it never freezes the app.
+      await container.read(firestorePlannerStreamProvider.future)
+          .timeout(const Duration(milliseconds: 500));
+    } catch (e) {
+      debugPrint("Pre-warm timeout/error (safe to ignore): $e");
+    }
+  }
+
+  // 7. Paint the app with the fully loaded state. 
+  // The native splash screen drops exactly here, revealing perfect data!
   runApp(
-    ProviderScope(
-      overrides: [
-        sharedPrefsProvider.overrideWithValue(prefs),
-      ],
+    UncontrolledProviderScope(
+      container: container,
       child: const CheqApp(),
     ),
   );
