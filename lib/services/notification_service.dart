@@ -18,9 +18,9 @@ class NotificationService {
     tz.initializeTimeZones();
     try {
       final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
-      final String timeZoneName = timeZoneInfo.identifier;
-      tz.setLocalLocation(tz.getLocation(timeZoneName));
-    } catch (_) {
+      tz.setLocalLocation(tz.getLocation(timeZoneInfo.identifier));
+    } catch (e) {
+      debugPrint("Failed to get local timezone: $e");
       tz.setLocalLocation(tz.getLocation('Etc/UTC'));
     }
 
@@ -29,12 +29,13 @@ class NotificationService {
 
     if (androidPlugin != null) {
       await androidPlugin.requestNotificationsPermission();
+      await Future.delayed(const Duration(milliseconds: 500));
       await androidPlugin.requestExactAlarmsPermission();
     }
 
     await _plugin.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@drawable/ic_stat_notification'), // Ensure this exists
+        android: AndroidInitializationSettings('ic_stat_notification'), // Ensure this exists
         iOS: DarwinInitializationSettings(
           requestAlertPermission: true,
           requestBadgePermission: true,
@@ -62,7 +63,7 @@ class NotificationService {
         channelDescription: 'Reminders for your daily planner tasks',
         importance: Importance.high,
         priority: Priority.high,
-        icon: '@drawable/ic_stat_notification',
+        icon: 'ic_stat_notification',
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -111,7 +112,7 @@ class NotificationService {
           channelDescription: 'Morning overviews and evening reviews',
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@drawable/ic_stat_notification',
+          icon: 'ic_stat_notification',
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,

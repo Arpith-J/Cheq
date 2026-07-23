@@ -1,4 +1,6 @@
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: "assets/images/icon_ariadne.png" # Points directly to your ARIADNE asset
+  image_path: "assets/images/icon_ariadne_foreground.png"
+  adaptive_icon_background: "#000000" 
+  adaptive_icon_foreground: "assets/images/icon_ariadne_foreground.png"

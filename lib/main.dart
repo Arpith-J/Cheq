@@ -22,17 +22,14 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   
   // 3. Boot Firebase
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  
+  // 4. AWAIT notifications so timezones and channels are fully locked in BEFORE the app loads data
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
-        .timeout(const Duration(seconds: 3));
+    await NotificationService.instance.initialize();
   } catch (e) {
-    debugPrint("Firebase initialization exception or timeout caught: $e");
-  }
-
-  // 4. Fire and forget notifications
-  NotificationService.instance.initialize().catchError((e) {
     debugPrint("Notification initialization failed: $e");
-  });
+  }
 
   //  5. CREATE STANDALONE RIVERPOD CONTAINER
   final container = ProviderContainer(
@@ -46,7 +43,7 @@ void main() async {
       // A. Load user preferences instantly
       container.read(customAccentProvider.notifier).loadSettings(user.uid);
       container.read(notificationSettingsProvider.notifier).loadSettings(user.uid);
-      
+      container.read(themeModeProvider.notifier).loadSettings(user.uid);
       // B. Force Firestore to load local task cache BEFORE drawing the screen
       // We give it a tiny 500ms timeout just in case, so it never freezes the app.
       await container.read(firestorePlannerStreamProvider.future)

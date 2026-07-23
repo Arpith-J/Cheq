@@ -12,7 +12,7 @@ import 'main_scaffold.dart'; // ← moved to top with other imports
 // Providers
 // ---------------------------------------------------------------------------
 
-const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
+const String appName = String.fromEnvironment('app_name', defaultValue: 'Ariadne');
 final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
