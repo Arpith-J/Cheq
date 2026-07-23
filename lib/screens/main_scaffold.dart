@@ -27,22 +27,6 @@ class MainScaffold extends ConsumerStatefulWidget {
 class _MainScaffoldState extends ConsumerState<MainScaffold> {
   int _selectedIndex = 1;
 
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(() {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        // Load the saved color
-        ref.read(customAccentProvider.notifier).loadSettings(user.uid);
-        // Load the saved notification preferences
-        ref.read(notificationSettingsProvider.notifier).loadSettings(user.uid);
-        // Load the saved Dark Mode preference
-        ref.read(themeModeProvider.notifier).loadSettings(user.uid);
-      }
-    });
-  }
-
   // IndexedStack children — never re-instantiated on tab switch
   static const List<Widget> _screens = [
     TodoListScreen(),

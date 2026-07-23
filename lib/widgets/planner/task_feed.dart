@@ -9,6 +9,10 @@ class TaskFeed extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final streamState = ref.watch(firestorePlannerStreamProvider);
+    if (streamState.isLoading && !streamState.hasValue) {
+      return const SizedBox.shrink(); 
+    }
     final entries = ref.watch(selectedDayEntriesProvider);
     if (entries.isEmpty) return const EmptyDay();
     return ListView.builder(
