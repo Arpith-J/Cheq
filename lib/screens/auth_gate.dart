@@ -85,7 +85,6 @@ class AuthGate extends ConsumerWidget {
       error: (error, _) => Scaffold(
         body: Center(child: Text('Authentication error: $error')),
       ),
-      // ✅ CHANGED: _HomeScreen() → MainScaffold()
       data: (user) => user == null ? const _SignInScreen() : const MainScaffold(),
     );
   }
