@@ -8,6 +8,7 @@ import '../providers/notification_settings_provider.dart';
 import '../widgets/theme_picker_row.dart';
 import '../widgets/settings/ai_settings_card.dart';
 import '../providers/task_settings_provider.dart';
+import '../screens/category_manager_sheet.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -99,6 +100,18 @@ class SettingsScreen extends ConsumerWidget {
                   value: ref.watch(carryOverTasksProvider),
                   onChanged: (val) {
                     ref.read(carryOverTasksProvider.notifier).toggle(val);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.category_rounded),
+                  title: const Text("Manage Categories", style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text("Create and color-code your tasks"),
+                  onTap: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true, // This allows the sheet to push up when the keyboard opens
+                      builder: (context) => const CategoryManagerSheet(),
+                    );
                   },
                 ),
               ],

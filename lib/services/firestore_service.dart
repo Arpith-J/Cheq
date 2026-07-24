@@ -6,6 +6,7 @@ import 'package:home_widget/home_widget.dart';
 import '../models/planner_model.dart';
 import 'home_widget_service.dart';
 import '../services/notification_service.dart';
+import '../models/category_model.dart';
 
 class FirestoreService {
   FirestoreService._();
@@ -380,6 +381,40 @@ class FirestoreService {
     } catch (e) {
       debugPrint("Failed to delete recurring group: $e");
     }
+  }
+
+  // --- CATEGORY METHODS ---
+
+  // 1. Get Categories Stream
+  Stream<List<CategoryModel>> getUserCategories(String uid) {
+    return _db
+        .collection('users')
+        .doc(uid)
+        .collection('categories')
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => CategoryModel.fromMap(doc.data()))
+            .toList());
+  }
+
+  // 2. Add a Category
+  Future<void> addCategory(String uid, CategoryModel category) async {
+    await _db
+        .collection('users')
+        .doc(uid)
+        .collection('categories')
+        .doc(category.id)
+        .set(category.toMap());
+  }
+
+  // 3. Delete a Category
+  Future<void> deleteCategory(String uid, String categoryId) async {
+    await _db
+        .collection('users')
+        .doc(uid)
+        .collection('categories')
+        .doc(categoryId)
+        .delete();
   }
 }
 
