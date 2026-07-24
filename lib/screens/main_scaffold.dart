@@ -9,9 +9,6 @@ import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'rewards_screen.dart';
 import '../widgets/app_side_drawer.dart';
-import '../providers/notification_settings_provider.dart';
-import '../providers/custom_theme_provider.dart';
-import '../providers/theme_provider.dart';
 
 // ---------------------------------------------------------------------------
 // MainScaffold
