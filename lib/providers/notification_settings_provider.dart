@@ -84,11 +84,11 @@ class NotificationSettingsNotifier extends Notifier<NotificationConfig> {
     NotificationService.instance.scheduleDailyBriefing(
       id: morningNotificationId,
       time: state.morningTime,
-      title: '$appName Overview', // 🌟 Dynamic branding
+      title: '$appName Overview', 
       body: 'Good ${_getSalutation(state.morningTime)} ${_getFirstName()}, you have $taskString scheduled for today.',
     );
 
-    // 🌟 CHASER LOGIC
+    
     if (pendingYesterday > 0) {
       // Add exactly 30 minutes to the scheduled morning time
       int chaserMinutes = state.morningTime.minute + 30;

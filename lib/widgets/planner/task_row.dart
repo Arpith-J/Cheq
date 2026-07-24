@@ -99,6 +99,14 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
         : entry.endTime.add(const Duration(days: 1));
 
     final isOverdue = !entry.isDone && now.isAfter(endDateTime);
+    
+    // --- CATEGORY DATA EXTRACTION ---
+    final hasCategory = entry.categoryName != null && entry.categoryColor != null;
+    final categoryColor = hasCategory ? Color(entry.categoryColor!) : null;
+
+    // Determine base border colors
+    final baseBorderColor = isOverdue ? cs.error.withValues(alpha: 0.6) : cs.outlineVariant.withValues(alpha: 0.5);
+    final baseBorderWidth = isOverdue ? 1.5 : 1.0;
 
     return Dismissible(
       key: Key(entry.id),
@@ -126,202 +134,267 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          color: cs.surface,
+          //color: cs.surface,
+          color: (hasCategory && !entry.isDone) 
+              ? categoryColor!.withValues(alpha: 0.15) // 15% tint of their category color!
+              : cs.surface,
           borderRadius: BorderRadius.circular(14),
+          // 1. Give the main card a standard, uniform border to prevent the crash
           border: Border.all(
-            color: isOverdue ? cs.error.withValues(alpha: 0.6) : cs.outlineVariant.withValues(alpha: 0.5),
-            width: isOverdue ? 1.5 : 1.0,
+            color: baseBorderColor, 
+            width: baseBorderWidth,
           ),
         ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => setState(() => _isExpanded = !_isExpanded),
-          onLongPress: () async {
-            final action = await _showDeleteConfirmDialog(context);
-            if (action > 0 && mounted) {
-              if (action == 2 && entry.repeatGroupId != null) {
-                await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
-              } else {
-                await FirestoreService.instance.deleteTask(entry.id);
-              }
-              syncNativeAlarms(ref);
-            }
-          },
-          child: AnimatedSize(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            alignment: Alignment.topCenter,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        width: 82,
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _formatTimeString(entry.startTime),
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: entry.isDone ? cs.onSurface.withValues(alpha: 0.3) : cs.primary,
+        // 2. Wrap the inside with ClipRRect so our thick stripe curves perfectly
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(13), 
+          child: Container(
+            decoration: BoxDecoration(
+              // 3. Apply the colored stripe here on the inside
+              border: Border(
+                left: BorderSide(
+                  color: (hasCategory && !entry.isDone) ? categoryColor! : Colors.transparent,
+                  width: (hasCategory && !entry.isDone) ? 4.0 : 0.0,
+                ),
+              ),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _isExpanded = !_isExpanded),
+              onLongPress: () async {
+                final action = await _showDeleteConfirmDialog(context);
+                if (action > 0 && mounted) {
+                  if (action == 2 && entry.repeatGroupId != null) {
+                    await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
+                  } else {
+                    await FirestoreService.instance.deleteTask(entry.id);
+                  }
+                  syncNativeAlarms(ref);
+                }
+              },
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                alignment: Alignment.topCenter,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            width: 82,
+                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                            alignment: Alignment.center,
+                            child: Text(
+                              _formatTimeString(entry.startTime),
+                              maxLines: 1,
+                              softWrap: false,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: entry.isDone ? cs.onSurface.withValues(alpha: 0.3) : cs.primary,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      Container(
-                        width: 1,
-                        margin: const EdgeInsets.symmetric(vertical: 10),
-                        color: entry.isDone ? cs.outlineVariant.withValues(alpha: 0.3) : cs.primary.withValues(alpha: 0.35),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: AnimatedBuilder(
-                                  animation: _strikeAnim,
-                                  builder: (_, _) => Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (isOverdue)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 4),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: cs.errorContainer,
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              'OVERDUE',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                                color: cs.onErrorContainer,
-                                                letterSpacing: 0.5,
+                          Container(
+                            width: 1,
+                            margin: const EdgeInsets.symmetric(vertical: 10),
+                            color: entry.isDone ? cs.outlineVariant.withValues(alpha: 0.3) : cs.primary.withValues(alpha: 0.35),
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: AnimatedBuilder(
+                                      animation: _strikeAnim,
+                                      builder: (_, _) => Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          
+                                          // --- FIXED: Row instead of Wrap for IntrinsicHeight safety ---
+                                          if (isOverdue || hasCategory)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 6),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  if (isOverdue)
+                                                    Container(
+                                                      margin: const EdgeInsets.only(right: 6),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: cs.errorContainer,
+                                                        borderRadius: BorderRadius.circular(6),
+                                                      ),
+                                                      child: Text(
+                                                        'OVERDUE',
+                                                        style: TextStyle(
+                                                          fontSize: 9,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: cs.onErrorContainer,
+                                                          letterSpacing: 0.5,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    
+                                                  if (hasCategory)
+                                                    Flexible(
+                                                      child: Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: categoryColor!.withValues(alpha: entry.isDone ? 0.05 : 0.12),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(
+                                                            color: categoryColor.withValues(alpha: entry.isDone ? 0.1 : 0.3),
+                                                          ),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            CircleAvatar(
+                                                              backgroundColor: categoryColor.withValues(alpha: entry.isDone ? 0.3 : 1.0),
+                                                              radius: 3.5,
+                                                            ),
+                                                            const SizedBox(width: 4),
+                                                            Flexible(
+                                                              child: Text(
+                                                                entry.categoryName!.toUpperCase(),
+                                                                overflow: TextOverflow.ellipsis,
+                                                                style: TextStyle(
+                                                                  fontSize: 9,
+                                                                  fontWeight: FontWeight.bold,
+                                                                  color: categoryColor.withValues(alpha: entry.isDone ? 0.4 : 0.85),
+                                                                  letterSpacing: 0.5,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
                                               ),
                                             ),
+                                          // ------------------------------------------------
+                                          
+                                          Text(
+                                            entry.title,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w500,
+                                              color: entry.isDone ? cs.onSurface.withValues(alpha: 0.35) : isOverdue ? cs.error : cs.onSurface,
+                                              decoration: entry.isDone ? TextDecoration.lineThrough : TextDecoration.none,
+                                              decorationColor: cs.onSurface.withValues(alpha: 0.4),
+                                              decorationThickness: 1.5,
+                                            ),
                                           ),
-                                        ),
-                                      Text(
-                                        entry.title,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w500,
-                                          color: entry.isDone ? cs.onSurface.withValues(alpha: 0.35) : isOverdue ? cs.error : cs.onSurface,
-                                          decoration: entry.isDone ? TextDecoration.lineThrough : TextDecoration.none,
-                                          decorationColor: cs.onSurface.withValues(alpha: 0.4),
-                                          decorationThickness: 1.5,
-                                        ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 8),
+                                  if (entry.isNotified)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: Icon(Icons.notifications_active_rounded, size: 14, color: cs.primary.withValues(alpha: 0.7)),
+                                    ),
+                                  SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: Checkbox(
+                                      value: entry.isDone,
+                                      onChanged: (bool? isChecked) async {
+                                        final updatedTask = entry.copyWith(isDone: isChecked ?? false);
+                                        await FirestoreService.instance.saveTask(updatedTask);
+                                        syncNativeAlarms(ref);
+                                      },
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              if (entry.isNotified)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: Icon(Icons.notifications_active_rounded, size: 14, color: cs.primary.withValues(alpha: 0.7)),
-                                ),
-                              SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: Checkbox(
-                                  value: entry.isDone,
-                                  onChanged: (bool? isChecked) async {
-                                    final updatedTask = entry.copyWith(isDone: isChecked ?? false);
-                                    await FirestoreService.instance.saveTask(updatedTask);
-                                    syncNativeAlarms(ref);
-                                  },
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                    if (_isExpanded)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(79, 0, 14, 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Icon(Icons.access_time_rounded, size: 14, color: cs.onSurfaceVariant),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Duration: ${_formatTimeString(entry.startTime)} - ${_formatTimeString(entry.endTime)}',
+                                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                                ),
+                                if (entry.isTimeLocked) ...[
+                                  const SizedBox(width: 12),
+                                  Icon(Icons.lock_rounded, size: 14, color: cs.primary),
+                                  const SizedBox(width: 4),
+                                  Text('Fixed', style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600)),
+                                ]
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(Icons.sync_rounded, size: 14, color: cs.primary),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Repeats: ${entry.repeatInterval.name.toUpperCase()}',
+                                  style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
+                                ),
+                                const Spacer(),
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () {
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      useSafeArea: true,
+                                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+                                      builder: (_) => UncontrolledProviderScope(
+                                        container: ProviderScope.containerOf(context),
+                                        child: AddTaskSheet(initialEntry: entry),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.edit_rounded, size: 14),
+                                  label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                  ],
                 ),
-                if (_isExpanded)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(79, 0, 14, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Icon(Icons.access_time_rounded, size: 14, color: cs.onSurfaceVariant),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Duration: ${_formatTimeString(entry.startTime)} - ${_formatTimeString(entry.endTime)}',
-                              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-                            ),
-                            if (entry.isTimeLocked) ...[
-                              const SizedBox(width: 12),
-                              Icon(Icons.lock_rounded, size: 14, color: cs.primary),
-                              const SizedBox(width: 4),
-                              Text('Fixed', style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600)),
-                            ]
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Icon(Icons.sync_rounded, size: 14, color: cs.primary),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Repeats: ${entry.repeatInterval.name.toUpperCase()}',
-                              style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
-                            ),
-                            const Spacer(),
-                            TextButton.icon(
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  isScrollControlled: true,
-                                  useSafeArea: true,
-                                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-                                  builder: (_) => UncontrolledProviderScope(
-                                    container: ProviderScope.containerOf(context),
-                                    child: AddTaskSheet(initialEntry: entry),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.edit_rounded, size: 14),
-                              label: const Text('Edit', style: TextStyle(fontSize: 12)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        ), // <-- Missing Bracket 1: Closes the inner Container
+      ), // <-- Missing Bracket 2: Closes the ClipRRect
     );
   }
 }
 
-// Safely decoupled and accessible to anything that imports task_row.dart
 void syncNativeAlarms(WidgetRef ref) {
   Future.microtask(() {
     final currentDayTasks = ref.read(selectedDayEntriesProvider);
