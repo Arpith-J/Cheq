@@ -8,6 +8,8 @@ import 'home_widget_service.dart';
 import '../services/notification_service.dart';
 import '../models/category_model.dart';
 
+
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class FirestoreService {
   FirestoreService._();
   static final FirestoreService instance = FirestoreService._();
@@ -260,7 +262,7 @@ class FirestoreService {
           await NotificationService.instance.cancelNotification(stableId);
           unawaited(NotificationService.instance.scheduleNotification(
             id: stableId,
-            title: 'Cheq Reminder',
+            title: '$appName Reminder',
             body: task.title,
             scheduledTime: task.startTime,
           ));
@@ -304,7 +306,7 @@ class FirestoreService {
           await NotificationService.instance.cancelNotification(stableId);
           unawaited(NotificationService.instance.scheduleNotification(
             id: stableId,
-            title: 'Cheq Reminder',
+            title: '$appName Reminder',
             body: task.title,
             scheduledTime: task.startTime,
           ));

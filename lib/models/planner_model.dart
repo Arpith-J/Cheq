@@ -11,6 +11,8 @@ class PlannerModel {
   final RepeatInterval repeatInterval;
   final Duration? customInterval;
   final String? repeatGroupId;
+  final String? categoryName;
+  final int? categoryColor;
 
   const PlannerModel({
     required this.id,
@@ -23,6 +25,8 @@ class PlannerModel {
     this.repeatInterval = RepeatInterval.none,
     this.customInterval,
     this.repeatGroupId,
+    this.categoryName,
+    this.categoryColor,
   });
 
   PlannerModel copyWith({
@@ -63,6 +67,8 @@ class PlannerModel {
       'repeatInterval': repeatInterval.name,
       'customIntervalInSeconds': customInterval?.inSeconds,
       'repeatGroupId': repeatGroupId,
+      'categoryName': categoryName,
+      'categoryColor': categoryColor,
     };
   }
 
@@ -83,6 +89,8 @@ class PlannerModel {
           ? Duration(seconds: map['customIntervalInSeconds'] as int)
           : null,
       repeatGroupId: map['repeatGroupId'] as String?,
+      categoryName: map['categoryName'] as String?,
+      categoryColor: map['categoryColor'] as int?,
     );
   }
 }

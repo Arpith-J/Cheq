@@ -7,7 +7,10 @@ import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../providers/notification_settings_provider.dart';
 import '../../providers/planner_provider.dart';
+import '../../providers/category_provider.dart'; 
 
+
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class AddTaskSheet extends ConsumerStatefulWidget {
   final PlannerModel? initialEntry;
 
@@ -28,6 +31,8 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   late TimeOfDay _endTime;
   late RepeatInterval _repeatInterval;
   Duration? _customInterval;
+  String? _selectedCategoryName;
+  int? _selectedCategoryColor;
 
   @override
   void initState() {
@@ -39,6 +44,8 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     _repeatInterval = entry?.repeatInterval ?? RepeatInterval.none;
     _customInterval = entry?.customInterval;
     _isTimeLocked = entry?.isTimeLocked ?? false;
+    _selectedCategoryName = entry?.categoryName;
+    _selectedCategoryColor = entry?.categoryColor;
 
     if (entry != null) {
       _startTime = TimeOfDay.fromDateTime(entry.startTime);
@@ -139,11 +146,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     int editScope = 0; 
 
     if (isExistingRecurring) {
-      // 1. Intercept repeat changes so we don't ask unnecessarily
       if (entry.repeatInterval != _repeatInterval) {
-        editScope = 2; // Automatically target future tasks to cleanly rebuild or delete them
+        editScope = 2; 
       } else {
-        // Only ask if repeat interval is the SAME but other metadata changed
         final choice = await showDialog<int>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -186,7 +191,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       
       String? groupId = entry?.repeatGroupId;
       
-      // 2. Detach from group if repeat is now turned off
       if (_repeatInterval == RepeatInterval.none && editScope == 2) {
         groupId = null; 
       } else if (groupId == null && _repeatInterval != RepeatInterval.none) {
@@ -196,7 +200,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       List<PlannerModel> tasksToSave = [];
       DateTime currentDay = day;
 
-      // 3. FIX: Only generate 7 instances if it is ACTUALLY repeating
       int instanceCount = 1;
       if (_repeatInterval != RepeatInterval.none && (editScope == 2 || editScope == 0)) {
         instanceCount = 7;
@@ -219,6 +222,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
           repeatInterval: editScope == 1 ? entry!.repeatInterval : _repeatInterval,
           customInterval: editScope == 1 ? entry!.customInterval : _customInterval,
           repeatGroupId: groupId,
+          // --> NEW FIELDS: Save the selected category data
+          categoryName: _selectedCategoryName,
+          categoryColor: _selectedCategoryColor,
         );
         
         tasksToSave.add(entryToSave);
@@ -231,7 +237,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
           await NotificationService.instance.cancelNotification(stableNotificationId);
           unawaited(NotificationService.instance.scheduleNotification(
             id: stableNotificationId,
-            title: '$appName Reminder', 
+            title: '$appName Reminder', // Make sure this matches your app string
             body: entryToSave.title,
             scheduledTime: startDt,
           ));
@@ -248,14 +254,12 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         }
       }
 
-      // 4. FIX: Safely use the old group ID to delete the old future tasks
       if (editScope == 2 && entry != null) {
         await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
       }
 
       unawaited(FirestoreService.instance.saveTasksBatch(tasksToSave));
       
-      // Native Alarm Sync
       Future.microtask(() {
         final currentDayTasks = ref.read(selectedDayEntriesProvider);
         final totalToday = currentDayTasks.length;
@@ -282,6 +286,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    
+    // --> NEW: Watch the categories from Firebase
+    final categoriesAsync = ref.watch(categoryStreamProvider);
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -343,6 +350,61 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
               ),
+              
+              // ── NEW CATEGORY SELECTOR UI ──
+              categoriesAsync.when(
+                data: (categories) {
+                  if (categories.isEmpty) return const SizedBox(height: 12);
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: SizedBox(
+                      height: 40,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categories.length + 1, // +1 for "None"
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            final isSelected = _selectedCategoryName == null;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: ChoiceChip(
+                                label: const Text('No Category', style: TextStyle(fontSize: 12)),
+                                selected: isSelected,
+                                onSelected: (val) => setState(() {
+                                  _selectedCategoryName = null;
+                                  _selectedCategoryColor = null;
+                                }),
+                              ),
+                            );
+                          }
+                          final cat = categories[index - 1];
+                          final isSelected = _selectedCategoryName == cat.name;
+                          final catColor = Color(cat.colorValue);
+                          
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: ChoiceChip(
+                              label: Text(cat.name, style: TextStyle(fontSize: 12, color: isSelected ? catColor.withValues(alpha: 0.9) : null)),
+                              selected: isSelected,
+                              selectedColor: catColor.withValues(alpha: 0.15),
+                              side: BorderSide(color: isSelected ? catColor : Colors.transparent),
+                              avatar: CircleAvatar(backgroundColor: catColor, radius: 6),
+                              onSelected: (val) => setState(() {
+                                _selectedCategoryName = cat.name;
+                                _selectedCategoryColor = cat.colorValue;
+                              }),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+                loading: () => const SizedBox(height: 12),
+                error: (_, __) => const SizedBox(height: 12),
+              ),
+              // ──────────────────────────────
+
               const SizedBox(height: 12),
               Row(
                 children: [
