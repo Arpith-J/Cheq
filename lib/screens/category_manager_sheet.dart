@@ -16,7 +16,9 @@ class CategoryManagerSheet extends ConsumerStatefulWidget {
 class _CategoryManagerSheetState extends ConsumerState<CategoryManagerSheet> {
   final TextEditingController _nameController = TextEditingController();
   
-  // Trimmed down to exactly 5 distinct options
+  // Track if we are editing an existing category
+  String? _editingCategoryId;
+  
   final List<Color> _presetColors = [
     Colors.redAccent, 
     Colors.blueAccent, 
@@ -33,14 +35,37 @@ class _CategoryManagerSheetState extends ConsumerState<CategoryManagerSheet> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // Use the existing ID if editing, otherwise generate a new one
     final newCategory = CategoryModel(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: _editingCategoryId ?? DateTime.now().millisecondsSinceEpoch.toString(),
       name: _nameController.text.trim(),
       colorValue: _selectedColor.value,
     );
 
     FirestoreService.instance.addCategory(user.uid, newCategory);
+    
+    // Reset the form
     _nameController.clear();
+    setState(() {
+      _editingCategoryId = null;
+      _selectedColor = Colors.blueAccent;
+    });
+  }
+
+  void _editCategory(CategoryModel category) {
+    setState(() {
+      _editingCategoryId = category.id;
+      _nameController.text = category.name;
+      _selectedColor = Color(category.colorValue);
+    });
+  }
+
+  void _cancelEdit() {
+    _nameController.clear();
+    setState(() {
+      _editingCategoryId = null;
+      _selectedColor = Colors.blueAccent;
+    });
   }
 
   void _openColorPicker() {
@@ -90,7 +115,20 @@ class _CategoryManagerSheetState extends ConsumerState<CategoryManagerSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Manage Categories", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _editingCategoryId == null ? "Manage Categories" : "Edit Category", 
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+              ),
+              if (_editingCategoryId != null)
+                TextButton(
+                  onPressed: _cancelEdit,
+                  child: const Text("Cancel"),
+                )
+            ],
+          ),
           const SizedBox(height: 20),
           
           Row(
@@ -99,7 +137,7 @@ class _CategoryManagerSheetState extends ConsumerState<CategoryManagerSheet> {
                 child: TextField(
                   controller: _nameController,
                   decoration: const InputDecoration(
-                    hintText: "New Category (e.g. Health)",
+                    hintText: "Category Name (e.g. Health)",
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(horizontal: 12),
                   ),
@@ -112,7 +150,7 @@ class _CategoryManagerSheetState extends ConsumerState<CategoryManagerSheet> {
                   backgroundColor: _selectedColor, 
                   foregroundColor: Colors.white
                 ),
-                child: const Text("Add"),
+                child: Text(_editingCategoryId == null ? "Add" : "Save"),
               ),
             ],
           ),
@@ -174,13 +212,23 @@ class _CategoryManagerSheetState extends ConsumerState<CategoryManagerSheet> {
                     return ListTile(
                       leading: CircleAvatar(backgroundColor: Color(cat.colorValue)),
                       title: Text(cat.name),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
-                        onPressed: () {
-                           final user = FirebaseAuth.instance.currentUser;
-                           if (user != null) FirestoreService.instance.deleteCategory(user.uid, cat.id);
-                        },
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_rounded, size: 20),
+                            onPressed: () => _editCategory(cat),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            onPressed: () {
+                               final user = FirebaseAuth.instance.currentUser;
+                               if (user != null) FirestoreService.instance.deleteCategory(user.uid, cat.id);
+                            },
+                          ),
+                        ],
                       ),
+                      onTap: () => _editCategory(cat),
                     );
                   },
                 );

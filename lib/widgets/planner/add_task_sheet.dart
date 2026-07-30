@@ -1,16 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../models/category_model.dart';
 import '../../models/planner_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../providers/notification_settings_provider.dart';
 import '../../providers/planner_provider.dart';
 import '../../providers/category_provider.dart'; 
-
+import '../../providers/ai_settings_provider.dart';
+import '../../utils/ai_categorizer.dart';
 
 const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
+
 class AddTaskSheet extends ConsumerStatefulWidget {
   final PlannerModel? initialEntry;
 
@@ -184,6 +188,73 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     setState(() => _isSaving = true);
 
     try {
+      // ─── AI AUTO-CATEGORIZATION LOGIC ───
+      if (_selectedCategoryName == null) {
+        final aiSettings = ref.read(aiSettingsProvider);
+        
+        // Safely extract categories whether stream is loaded or loading
+        final categoryState = ref.read(categoryStreamProvider);
+        final List<CategoryModel> categories = categoryState.value ?? [];
+
+        if (aiSettings.isAiEnabled && aiSettings.apiKey != null && aiSettings.apiKey!.isNotEmpty) {
+          final categoryNames = categories.map((c) => c.name).toList();
+          
+          debugPrint("🤖 Running AI Categorizer for: '${_titleCtrl.text.trim()}'");
+
+          final aiMatch = await AiCategorizer.categorize(
+            taskTitle: _titleCtrl.text.trim(),
+            availableCategories: categoryNames,
+            apiKey: aiSettings.apiKey!,
+          );
+
+          debugPrint("🤖 AI Result: '$aiMatch'");
+
+          if (aiMatch != null && aiMatch.trim().isNotEmpty && aiMatch.toLowerCase() != 'none') {
+            final cleanedMatch = aiMatch.trim();
+
+            CategoryModel? existingCat;
+            for (var c in categories) {
+              if (c.name.toLowerCase() == cleanedMatch.toLowerCase()) {
+                existingCat = c;
+                break;
+              }
+            }
+
+            if (existingCat != null) {
+              _selectedCategoryName = existingCat.name;
+              _selectedCategoryColor = existingCat.colorValue;
+            } else {
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) {
+                final colors = [
+                  0xFFFF5252, // RedAccent
+                  0xFF448AFF, // BlueAccent
+                  0xFF69F0AE, // GreenAccent
+                  0xFFFFAB40, // OrangeAccent
+                  0xFFE040FB  // PurpleAccent
+                ];
+                final autoColor = colors[cleanedMatch.length % colors.length];
+
+                final newCategory = CategoryModel(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: cleanedMatch,
+                  colorValue: autoColor,
+                );
+
+                // Await creation in Firestore before building task models
+                await FirestoreService.instance.addCategory(user.uid, newCategory);
+
+                _selectedCategoryName = newCategory.name;
+                _selectedCategoryColor = newCategory.colorValue;
+              }
+            }
+          }
+        } else {
+          debugPrint("⚠️ AI Categorization skipped: AI disabled or API Key missing.");
+        }
+      }
+      // ────────────────────────────────────
+
       final day = ref.read(selectedDayProvider);
       DateTime toDateTime(TimeOfDay t, DateTime d) => DateTime(d.year, d.month, d.day, t.hour, t.minute);
 
@@ -222,7 +293,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
           repeatInterval: editScope == 1 ? entry!.repeatInterval : _repeatInterval,
           customInterval: editScope == 1 ? entry!.customInterval : _customInterval,
           repeatGroupId: groupId,
-          // --> NEW FIELDS: Save the selected category data
           categoryName: _selectedCategoryName,
           categoryColor: _selectedCategoryColor,
         );
@@ -237,7 +307,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
           await NotificationService.instance.cancelNotification(stableNotificationId);
           unawaited(NotificationService.instance.scheduleNotification(
             id: stableNotificationId,
-            title: '$appName Reminder', // Make sure this matches your app string
+            title: '$appName Reminder', 
             body: entryToSave.title,
             scheduledTime: startDt,
           ));
@@ -258,7 +328,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
       }
 
-      unawaited(FirestoreService.instance.saveTasksBatch(tasksToSave));
+      await FirestoreService.instance.saveTasksBatch(tasksToSave);
       
       Future.microtask(() {
         final currentDayTasks = ref.read(selectedDayEntriesProvider);
@@ -284,10 +354,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Removed the unused aiSettings watch to fix the linter warning.
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    
-    // --> NEW: Watch the categories from Firebase
     final categoriesAsync = ref.watch(categoryStreamProvider);
 
     return Padding(
@@ -401,7 +470,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                   );
                 },
                 loading: () => const SizedBox(height: 12),
-                error: (_, __) => const SizedBox(height: 12),
+                error: (_, _) => const SizedBox(height: 12),
               ),
               // ──────────────────────────────
 
