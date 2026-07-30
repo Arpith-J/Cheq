@@ -5,6 +5,13 @@ import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
 
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  // No-op: the OS re-launches the app on notification tap.
+  // This function exists solely to prevent tree-shaking of the
+  // flutter_local_notifications plugin in release builds.
+}
+
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
@@ -34,6 +41,7 @@ class NotificationService {
     }
 
     await _plugin.initialize(
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_stat_notification'), // Ensure this exists
         iOS: DarwinInitializationSettings(
