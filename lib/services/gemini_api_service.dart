@@ -12,67 +12,12 @@ class GeminiApiException implements Exception {
 }
 
 class GeminiApiService {
-  static const String _baseUrl =
-      'https://generativelanguage.googleapis.com/v1beta';
-
-  static Future<List<String>> listGenerateModels(String apiKey) async {
-    final client = HttpClient();
-
-    try {
-      final uri = Uri.parse('$_baseUrl/models?pageSize=100');
-      final request = await client.getUrl(uri);
-      request.headers.set('x-goog-api-key', apiKey);
-
-      final response = await request.close();
-      final responseBody = await response.transform(utf8.decoder).join();
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw GeminiApiException(
-          'List models failed: $responseBody',
-          statusCode: response.statusCode,
-        );
-      }
-
-      final decoded = jsonDecode(responseBody) as Map<String, dynamic>;
-      final models = (decoded['models'] as List? ?? []);
-
-      final results = <String>[];
-      for (final item in models) {
-        if (item is! Map<String, dynamic>) continue;
-        final name = item['name']?.toString();
-        final methods =
-            (item['supportedGenerationMethods'] as List? ?? []).cast<dynamic>();
-
-        if (name != null && methods.contains('generateContent')) {
-          results.add(name.replaceFirst('models/', ''));
-        }
-      }
-
-      return results;
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  static Future<String> resolveWorkingModel(String apiKey) async {
-    final models = await listGenerateModels(apiKey);
-
-    if (models.contains('gemini-2.5-flash')) return 'gemini-2.5-flash';
-    if (models.contains('gemini-2.5-flash-lite')) return 'gemini-2.5-flash-lite';
-    if (models.contains('gemini-2.5-pro')) return 'gemini-2.5-pro';
-    if (models.contains('gemini-2.0-flash')) return 'gemini-2.0-flash';
-
-    if (models.isNotEmpty) return models.first;
-
-    throw GeminiApiException(
-      'No supported Gemini text model found for this API key.',
-    );
-  }
+  static const String _defaultModel = 'gemini-3.6-flash';
 
   static Future<String?> generateText({
     required String apiKey,
     required String prompt,
-    String model = 'gemini-2.5-flash',
+    String model = _defaultModel,
     double temperature = 0.2,
     int maxOutputTokens = 128,
     String? responseMimeType,
@@ -80,11 +25,11 @@ class GeminiApiService {
     final client = HttpClient();
 
     try {
-      final uri = Uri.parse('$_baseUrl/models/$model:generateContent');
+      final uri = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey');
       final request = await client.postUrl(uri);
 
       request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.headers.set('x-goog-api-key', apiKey);
 
       request.write(jsonEncode({
         'contents': [
@@ -126,24 +71,15 @@ class GeminiApiService {
       if (parts == null || parts.isEmpty) return null;
 
       return parts.first['text']?.toString().trim();
+    } on SocketException catch (e) {
+      throw GeminiApiException('Network error: ${e.message}');
+    } on HttpException catch (e) {
+      throw GeminiApiException('HTTP error: ${e.message}');
+    } on FormatException catch (e) {
+      throw GeminiApiException('Response parse error: ${e.message}');
     } finally {
       client.close(force: true);
     }
   }
 
-  static Future<void> validateApiKeyOrThrow(String apiKey) async {
-    final model = await resolveWorkingModel(apiKey);
-
-    final result = await generateText(
-      apiKey: apiKey,
-      model: model,
-      prompt: 'Reply with exactly OK',
-      temperature: 0,
-      maxOutputTokens: 8,
-    );
-
-    if (result == null || result.trim().isEmpty) {
-      throw GeminiApiException('The API returned an empty response.');
-    }
-  }
 }

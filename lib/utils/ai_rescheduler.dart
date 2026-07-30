@@ -65,13 +65,12 @@ Return a raw JSON array of objects with exactly these fields:
 id, title, startTime, endTime
 ''';
 
-      final model = await GeminiApiService.resolveWorkingModel(apiKey);
       final rawText = await GeminiApiService.generateText(
         apiKey: apiKey,
-        model: model,
+        model: 'gemini-3.6-flash',
         prompt: prompt,
         temperature: 0.2,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 500,
         responseMimeType: 'application/json',
       );
 
