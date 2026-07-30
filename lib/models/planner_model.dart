@@ -40,6 +40,8 @@ class PlannerModel {
     RepeatInterval? repeatInterval,
     Duration? customInterval,
     String? repeatGroupId,
+    String? categoryName,
+    int? categoryColor,
   }) {
     return PlannerModel(
       id: id ?? this.id,
@@ -52,6 +54,8 @@ class PlannerModel {
       repeatInterval: repeatInterval ?? this.repeatInterval,
       customInterval: customInterval ?? this.customInterval,
       repeatGroupId: repeatGroupId ?? this.repeatGroupId,
+      categoryName: categoryName ?? this.categoryName,
+      categoryColor: categoryColor ?? this.categoryColor,
     );
   }
 

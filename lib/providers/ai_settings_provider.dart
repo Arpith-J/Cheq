@@ -24,11 +24,11 @@ class AISettingsState {
 class AISettingsNotifier extends Notifier<AISettingsState> {
   static const _storage = FlutterSecureStorage();
   static const _keyName = 'user_gemini_api_key';
-  static const _enabledName = 'ai_rescheduler_enabled'; // Stored as 'true' or 'false'
+  static const _enabledName = 'ai_rescheduler_enabled';
 
   @override
   AISettingsState build() {
-    _loadSettings();
+    Future.microtask(() => _loadSettings());
     return const AISettingsState();
   }
 
@@ -36,7 +36,7 @@ class AISettingsNotifier extends Notifier<AISettingsState> {
     final key = await _storage.read(key: _keyName);
     final enabledStr = await _storage.read(key: _enabledName);
     
-    state = state.copyWith(
+    state = AISettingsState(
       apiKey: key,
       isAiEnabled: enabledStr == 'true',
     );
@@ -49,8 +49,8 @@ class AISettingsNotifier extends Notifier<AISettingsState> {
 
   Future<void> clearApiKey() async {
     await _storage.delete(key: _keyName);
-    state = state.copyWith(apiKey: null, isAiEnabled: false);
     await _storage.write(key: _enabledName, value: 'false');
+    state = const AISettingsState(apiKey: null, isAiEnabled: false);
   }
 
   Future<void> toggleAiEnabled(bool isEnabled) async {
