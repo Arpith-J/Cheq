@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_heatmap_calendar/flutter_heatmap_calendar.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/stats_provider.dart';
 
@@ -239,6 +240,43 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   );
                 }).toList(),
               ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          Text(
+            'Long-Term Consistency',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: stats.heatmapDatasets.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Text(
+                          'No data yet',
+                          style: TextStyle(color: cs.onSurfaceVariant),
+                        ),
+                      ),
+                    )
+                  : HeatMap(
+                      datasets: stats.heatmapDatasets,
+                      colorMode: ColorMode.color,
+                      colorsets: {
+                        1: cs.primary.withValues(alpha: 0.25),
+                        2: cs.primary.withValues(alpha: 0.5),
+                        3: cs.primary.withValues(alpha: 0.75),
+                        4: cs.primary,
+                      },
+                      defaultColor: cs.surfaceContainerHighest,
+                      textColor: cs.onSurfaceVariant,
+                      showText: false,
+                      scrollable: true,
+                      size: 18,
+                      borderRadius: 4,
+                    ),
             ),
           ),
         ],

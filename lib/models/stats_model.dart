@@ -2,22 +2,26 @@ class StatsModel {
   final double totalHoursAllTime;
   final Map<DateTime, double> hoursPerDayThisWeek;
   final Map<String, double> hoursByCategory;
+  final Map<DateTime, int> heatmapDatasets;
 
   const StatsModel({
     this.totalHoursAllTime = 0.0,
     this.hoursPerDayThisWeek = const {},
     this.hoursByCategory = const {},
+    this.heatmapDatasets = const {},
   });
 
   StatsModel copyWith({
     double? totalHoursAllTime,
     Map<DateTime, double>? hoursPerDayThisWeek,
     Map<String, double>? hoursByCategory,
+    Map<DateTime, int>? heatmapDatasets,
   }) {
     return StatsModel(
       totalHoursAllTime: totalHoursAllTime ?? this.totalHoursAllTime,
       hoursPerDayThisWeek: hoursPerDayThisWeek ?? this.hoursPerDayThisWeek,
       hoursByCategory: hoursByCategory ?? this.hoursByCategory,
+      heatmapDatasets: heatmapDatasets ?? this.heatmapDatasets,
     );
   }
 
@@ -28,6 +32,9 @@ class StatsModel {
         (key, value) => MapEntry(key.toIso8601String(), value),
       ),
       'hoursByCategory': hoursByCategory,
+      'heatmapDatasets': heatmapDatasets.map(
+        (key, value) => MapEntry(key.toIso8601String(), value),
+      ),
     };
   }
 
@@ -39,6 +46,9 @@ class StatsModel {
       ),
       hoursByCategory: (map['hoursByCategory'] as Map<String, dynamic>).map(
         (key, value) => MapEntry(key, (value as num).toDouble()),
+      ),
+      heatmapDatasets: (map['heatmapDatasets'] as Map<String, dynamic>? ?? {}).map(
+        (key, value) => MapEntry(DateTime.parse(key), (value as num).toInt()),
       ),
     );
   }
