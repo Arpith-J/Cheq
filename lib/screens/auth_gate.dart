@@ -62,6 +62,8 @@ class AuthService {
       'email': user.email ?? '',
       'photoUrl': user.photoURL,
       'coins': 0,
+      'streakCount': 0,
+      'unlockedBadges': [],
       'createdAt': FieldValue.serverTimestamp(),
     });
   }

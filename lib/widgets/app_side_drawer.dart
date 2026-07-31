@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../screens/main_scaffold.dart'; // To access the ProfileAvatar widget
 import '../screens/settings_screen.dart';
 import '../screens/stats_screen.dart';
+import '../screens/trophy_room_screen.dart';
 
 class AppSideDrawer extends ConsumerWidget {
   const AppSideDrawer({super.key});
@@ -54,6 +55,20 @@ class AppSideDrawer extends ConsumerWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.emoji_events_rounded, color: cs.primary),
+                  title: const Text(
+                    "Trophy Room",
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const TrophyRoomScreen()),
                     );
                   },
                 ),

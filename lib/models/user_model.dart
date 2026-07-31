@@ -4,6 +4,8 @@ class UserModel {
   final String email;
   final String? photoUrl;
   final int coins;
+  final int streakCount;
+  final List<String> unlockedBadges;
 
   const UserModel({
     required this.uid,
@@ -11,6 +13,8 @@ class UserModel {
     required this.email,
     this.photoUrl,
     this.coins = 0,
+    this.streakCount = 0,
+    this.unlockedBadges = const [],
   });
 
   UserModel copyWith({
@@ -19,6 +23,8 @@ class UserModel {
     String? email,
     String? photoUrl,
     int? coins,
+    int? streakCount,
+    List<String>? unlockedBadges,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -26,6 +32,8 @@ class UserModel {
       email: email ?? this.email,
       photoUrl: photoUrl ?? this.photoUrl,
       coins: coins ?? this.coins,
+      streakCount: streakCount ?? this.streakCount,
+      unlockedBadges: unlockedBadges ?? this.unlockedBadges,
     );
   }
 
@@ -35,6 +43,8 @@ class UserModel {
         'email': email,
         'photoUrl': photoUrl,
         'coins': coins,
+        'streakCount': streakCount,
+        'unlockedBadges': unlockedBadges,
       };
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -43,5 +53,8 @@ class UserModel {
         email: map['email'] as String,
         photoUrl: map['photoUrl'] as String?,
         coins: (map['coins'] as int?) ?? 0,
+        streakCount: (map['streakCount'] as int?) ?? 0,
+        unlockedBadges: (map['unlockedBadges'] as List<dynamic>? ?? const [])
+            .cast<String>(),
       );
 }

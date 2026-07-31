@@ -351,8 +351,6 @@ class _CollectionCard extends ConsumerWidget {
                 children: [
                   const Icon(Icons.monetization_on_rounded, size: 13, color: Color(0xFFFFA000)),
                   const SizedBox(width: 3),
-                  Text('+${collection.coinsReward} on complete',
-                      style: theme.textTheme.labelSmall?.copyWith(color: const Color(0xFF8A6000))),
                 ],
               ),
             ],
