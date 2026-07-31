@@ -294,7 +294,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   Future<void> _runBackgroundCategorization(List<PlannerModel> savedTasks) async {
     try {
       final aiSettings = ref.read(aiSettingsProvider);
-      if (!aiSettings.isAiEnabled ||
+      if (!aiSettings.isCategorizerEnabled ||
           aiSettings.apiKey == null ||
           aiSettings.apiKey!.isEmpty) {
         debugPrint("⚠️ Background AI skipped: disabled or no API key.");

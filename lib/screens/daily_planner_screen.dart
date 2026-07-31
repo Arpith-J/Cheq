@@ -89,7 +89,7 @@ class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen> with Wi
               bool aiSuccess = false;
 
               // 🚀 ATTEMPT AI RESCHEDULER FIRST
-              if (aiSettings.isAiEnabled && aiSettings.apiKey != null && aiSettings.apiKey!.isNotEmpty) {
+              if (aiSettings.isReschedulerEnabled && aiSettings.apiKey != null && aiSettings.apiKey!.isNotEmpty) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(

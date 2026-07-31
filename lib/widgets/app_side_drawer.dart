@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../screens/main_scaffold.dart'; // To access the ProfileAvatar widget
 import '../screens/settings_screen.dart';
+import '../screens/stats_screen.dart';
 
 class AppSideDrawer extends ConsumerWidget {
   const AppSideDrawer({super.key});
@@ -53,6 +54,20 @@ class AppSideDrawer extends ConsumerWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.pie_chart_rounded, color: cs.primary),
+                  title: const Text(
+                    "Time Breakdown",
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StatsScreen()),
                     );
                   },
                 ),
