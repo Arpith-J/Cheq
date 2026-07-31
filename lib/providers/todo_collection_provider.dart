@@ -3,6 +3,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'rewards_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Models
@@ -161,11 +162,11 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
 
     final db      = FirebaseFirestore.instance;
     final colRef  = db.collection('users').doc(uid).collection('todo_collections').doc(collectionId);
-    final userRef = db.collection('users').doc(uid);
 
-    await db.runTransaction((tx) async {
+    // ── 1. Mutate the collection document atomically ─────────────────────────
+    final result = await db.runTransaction((tx) async {
       final snap = await tx.get(colRef);
-      if (!snap.exists) return;
+      if (!snap.exists) return null;
       final data     = snap.data()!;
       final isTask   = (data['items'] as List<dynamic>).length == 1 && (data['items'] as List<dynamic>).first['text'] == data['title'];
       final rawItems = List<Map<String, dynamic>>.from(
@@ -180,28 +181,7 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
       }).toList();
 
       final allDone     = updated.every((item) => item['isDone'] == true);
-      int coinIncrement = 0;
-      
-      if (!currentStatus) {
-        // ── Checking an item as DONE ────────────────────────────────────────
-        // Rule: +5 for completing any item (whether it's an independent task or inside a list)
-        coinIncrement += 5;
-        
-        // Rule: If it's a multi-item list and this action completes it, add +10 bonus
-        if (!isTask && allDone) {
-          coinIncrement += 10;
-        }
-      } else {
-        // ── Unchecking an item to UNDONE ─────────────────────────────────────
-        // Rule: Remove 5 coins for unchecking the item
-        coinIncrement -= 5;
-        
-        // Rule: If it was a completed list, strip the 10 coin completion bonus too
-        final wasArchived = data['isArchived'] as bool? ?? false;
-        if (!isTask && wasArchived) {
-          coinIncrement -= 10;
-        }
-      }
+      final wasArchived = data['isArchived'] as bool? ?? false;
 
       tx.update(colRef, {'items': updated});
 
@@ -210,19 +190,40 @@ class TodoCollectionNotifier extends AsyncNotifier<void> {
           'isArchived': true,
           'archivedAt': FieldValue.serverTimestamp(), // Track completion time
         });
-      }else{
+      } else {
         // Restores the card to active states if any single item is unchecked
         tx.update(colRef, {
           'isArchived': false,
           'archivedAt': FieldValue.delete(), // Clears completion time tracking
         });
       }
-      if (coinIncrement != 0) {
-        tx.update(userRef, {
-          'coins': FieldValue.increment(coinIncrement),
-        });
-      }
+
+      return (isTask: isTask, allDone: allDone, wasArchived: wasArchived);
     });
+
+    if (result == null) return;
+
+    // ── 2. Apply the coin economy through the rewards provider ───────────────
+    final rewards = ref.read(rewardsProvider.notifier);
+    if (!currentStatus) {
+      // Checking an item as DONE:
+      // Rule: +5 for completing any item (independent task or inside a list)
+      await rewards.awardTodoCompletion();
+
+      // Rule: If it's a multi-item list and this action completes it, add +10 bonus
+      if (!result.isTask && result.allDone) {
+        await rewards.awardTodoListCompletion();
+      }
+    } else {
+      // Unchecking an item to UNDONE:
+      // Rule: Remove 5 coins for unchecking the item
+      await rewards.deductTodoCompletion();
+
+      // Rule: If it was a completed list, strip the 10 coin completion bonus too
+      if (!result.isTask && result.wasArchived) {
+        await rewards.deductTodoListCompletion();
+      }
+    }
   }
 
   Future<void> deleteCollection(String collectionId) async {

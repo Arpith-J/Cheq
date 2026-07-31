@@ -8,6 +8,7 @@ class PlannerModel {
   final bool isDone;
   final bool isNotified;
   final bool isTimeLocked; 
+  final bool isRewarded;
   final RepeatInterval repeatInterval;
   final Duration? customInterval;
   final String? repeatGroupId;
@@ -22,6 +23,7 @@ class PlannerModel {
     this.isDone = false,
     this.isNotified = false,
     this.isTimeLocked = false, // Defaults to flexible
+    this.isRewarded = false,
     this.repeatInterval = RepeatInterval.none,
     this.customInterval,
     this.repeatGroupId,
@@ -37,6 +39,7 @@ class PlannerModel {
     bool? isDone,
     bool? isNotified,
     bool? isTimeLocked,
+    bool? isRewarded,
     RepeatInterval? repeatInterval,
     Duration? customInterval,
     String? repeatGroupId,
@@ -51,6 +54,7 @@ class PlannerModel {
       isDone: isDone ?? this.isDone,
       isNotified: isNotified ?? this.isNotified,
       isTimeLocked: isTimeLocked ?? this.isTimeLocked,
+      isRewarded: isRewarded ?? this.isRewarded,
       repeatInterval: repeatInterval ?? this.repeatInterval,
       customInterval: customInterval ?? this.customInterval,
       repeatGroupId: repeatGroupId ?? this.repeatGroupId,
@@ -68,6 +72,7 @@ class PlannerModel {
       'isDone': isDone,
       'isNotified': isNotified,
       'isTimeLocked': isTimeLocked,
+      'isRewarded': isRewarded,
       'repeatInterval': repeatInterval.name,
       'customIntervalInSeconds': customInterval?.inSeconds,
       'repeatGroupId': repeatGroupId,
@@ -85,6 +90,7 @@ class PlannerModel {
       isDone: map['isDone'] ?? false,
       isNotified: map['isNotified'] ?? false,
       isTimeLocked: map['isTimeLocked'] ?? false,
+      isRewarded: map['isRewarded'] ?? false,
       repeatInterval: RepeatInterval.values.firstWhere(
         (e) => e.name == map['repeatInterval'],
         orElse: () => RepeatInterval.none,

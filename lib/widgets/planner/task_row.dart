@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/planner_model.dart';
 import '../../providers/planner_provider.dart';
 import '../../providers/notification_settings_provider.dart';
+import '../../providers/rewards_provider.dart';
 import '../../services/firestore_service.dart';
 import 'add_task_sheet.dart';
 
@@ -309,8 +310,31 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                                     child: Checkbox(
                                       value: entry.isDone,
                                       onChanged: (bool? isChecked) async {
-                                        final updatedTask = entry.copyWith(isDone: isChecked ?? false);
-                                        await FirestoreService.instance.saveTask(updatedTask);
+                                        final isNowDone = isChecked ?? false;
+
+                                        if (isNowDone && !entry.isDone) {
+                                          // Mark the task done and flag it as
+                                          // rewarded to prevent double-awards.
+                                          await FirestoreService.instance
+                                              .saveTask(entry.copyWith(
+                                            isDone: true,
+                                            isRewarded: true,
+                                          ));
+
+                                          if (!entry.isRewarded) {
+                                            await ref
+                                                .read(rewardsProvider.notifier)
+                                                .awardPlannerTaskCompletion(
+                                                    entry);
+                                          }
+                                        } else {
+                                          // Unchecking keeps isRewarded=true so
+                                          // re-checking cannot re-award coins.
+                                          await FirestoreService.instance
+                                              .saveTask(entry.copyWith(
+                                            isDone: isNowDone,
+                                          ));
+                                        }
                                         syncNativeAlarms(ref);
                                       },
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
