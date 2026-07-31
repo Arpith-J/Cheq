@@ -213,7 +213,9 @@ class FirestoreService {
       }).toList()
         ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-      HomeWidgetService.updateHomeScreenWidgetData(todaysTasks);
+      final pendingTasks = todaysTasks.where((task) => !task.isDone).toList();
+
+      HomeWidgetService.updateHomeScreenWidgetData(pendingTasks);
     } catch (e) {
       debugPrint("Widget processing engine sync failed: $e");
     }
