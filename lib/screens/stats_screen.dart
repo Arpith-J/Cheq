@@ -4,9 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/stats_provider.dart';
 
-class StatsScreen extends ConsumerWidget {
+class StatsScreen extends ConsumerStatefulWidget {
   const StatsScreen({super.key});
 
+  @override
+  ConsumerState<StatsScreen> createState() => _StatsScreenState();
+}
+
+class _StatsScreenState extends ConsumerState<StatsScreen> {
   static const _pieColors = [
     Color(0xFF4CAF50),
     Color(0xFF2196F3),
@@ -22,8 +27,31 @@ class StatsScreen extends ConsumerWidget {
     'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
   ];
 
+  int _touchedPieIndex = -1;
+
+  static String _formatHours(double totalHours) {
+    final totalMinutes = (totalHours * 60).round();
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours == 0) return '${minutes}m';
+    if (minutes == 0) return '$hours hr';
+    return '$hours hr ${minutes}m';
+  }
+
+  void _onPieTouch(FlTouchEvent event, PieTouchResponse? response) {
+    setState(() {
+      if (!event.isInterestedForInteractions ||
+          response == null ||
+          response.touchedSection == null) {
+        _touchedPieIndex = -1;
+        return;
+      }
+      _touchedPieIndex = response.touchedSection!.touchedSectionIndex;
+    });
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final stats = ref.watch(statsProvider);
     final cs = Theme.of(context).colorScheme;
 
@@ -57,7 +85,7 @@ class StatsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${stats.totalHoursAllTime.toStringAsFixed(1)} Hours',
+                    _formatHours(stats.totalHoursAllTime),
                     style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: cs.primary,
@@ -87,13 +115,32 @@ class StatsScreen extends ConsumerWidget {
             Column(
               children: [
                 SizedBox(
-                  height: 240,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 2,
-                      centerSpaceRadius: 50,
-                      sections: _buildPieSections(sortedCategories),
-                    ),
+                  height: 260,
+                  child: Stack(
+                    children: [
+                      PieChart(
+                        PieChartData(
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 50,
+                          sections: _buildPieSections(sortedCategories),
+                          pieTouchData: PieTouchData(
+                            touchCallback: _onPieTouch,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: AnimatedOpacity(
+                            opacity: _touchedPieIndex >= 0 ? 1 : 0,
+                            duration: const Duration(milliseconds: 150),
+                            child: _buildPieTooltip(sortedCategories, cs),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -124,7 +171,7 @@ class StatsScreen extends ConsumerWidget {
                       final day = sortedDays[groupIndex].key;
                       final label = _weekdayLabels[day.weekday - 1];
                       return BarTooltipItem(
-                        '$label\n${rod.toY.toStringAsFixed(1)}h',
+                        '$label\n${_formatHours(rod.toY)}',
                         TextStyle(color: cs.onPrimary, fontWeight: FontWeight.bold),
                       );
                     },
@@ -199,16 +246,61 @@ class StatsScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildPieTooltip(List<MapEntry<String, double>> data, ColorScheme cs) {
+    final index = _touchedPieIndex;
+    if (index < 0 || index >= data.length) return const SizedBox.shrink();
+    final entry = data[index];
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: cs.inverseSurface,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              entry.key,
+              style: TextStyle(
+                color: cs.onInverseSurface,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _formatHours(entry.value),
+              style: TextStyle(
+                color: cs.onInverseSurface,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   List<PieChartSectionData> _buildPieSections(List<MapEntry<String, double>> data) {
     final total = data.fold(0.0, (a, b) => a + b.value);
     if (total == 0) return [];
     return data.asMap().entries.map((e) {
       final percentage = (e.value.value / total * 100).toStringAsFixed(1);
+      final isTouched = e.key == _touchedPieIndex;
       return PieChartSectionData(
         color: _pieColors[e.key % _pieColors.length],
         value: e.value.value,
         title: '$percentage%',
-        radius: 50,
+        radius: isTouched ? 60 : 50,
         titleStyle: const TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,
@@ -236,7 +328,7 @@ class StatsScreen extends ConsumerWidget {
             const SizedBox(width: 6),
             Flexible(
               child: Text(
-                '${e.value.key} (${e.value.value.toStringAsFixed(1)}h)',
+                '${e.value.key} (${_formatHours(e.value.value)})',
                 style: TextStyle(fontSize: 12, color: cs.onSurface),
                 overflow: TextOverflow.ellipsis,
               ),
