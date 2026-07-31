@@ -7,6 +7,7 @@ import '../screens/settings_screen.dart';
 import '../screens/stats_screen.dart';
 import '../screens/trophy_room_screen.dart';
 
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class AppSideDrawer extends ConsumerWidget {
   const AppSideDrawer({super.key});
 
@@ -110,7 +111,7 @@ class AppSideDrawer extends ConsumerWidget {
                   context: context,
                   builder: (ctx) => AlertDialog(
                     title: const Text('Sign Out'),
-                    content: const Text('Are you sure you want to log out of Cheq?'),
+                    content: const Text('Are you sure you want to log out of $appName?'),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx, false),

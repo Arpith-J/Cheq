@@ -262,14 +262,6 @@ class _SingleTaskLineItem extends ConsumerWidget {
             decoration: item.isDone ? TextDecoration.lineThrough : TextDecoration.none,
           ),
         ),
-        trailing: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 4,
-          children: [
-            const Icon(Icons.monetization_on_rounded, size: 14, color: Color(0xFFFFA000)),
-            Text('+${task.coinsReward}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF8A6000))),
-          ],
-        ),
         onLongPress: () async {
           final confirmed = await showDialog<bool>(
             context: context,
@@ -346,13 +338,6 @@ class _CollectionCard extends ConsumerWidget {
                   style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.45)),
                 ),
               ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  const Icon(Icons.monetization_on_rounded, size: 13, color: Color(0xFFFFA000)),
-                  const SizedBox(width: 3),
-                ],
-              ),
             ],
           ),
         ),

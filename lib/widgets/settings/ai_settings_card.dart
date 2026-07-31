@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/ai_settings_provider.dart';
-
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class AiSettingsCard extends ConsumerWidget {
   const AiSettingsCard({super.key});
 
@@ -204,7 +204,7 @@ class _ApiKeySetupSheetState extends ConsumerState<_ApiKeySetupSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              'To keep Cheq private and avoid charging you indirectly, AI uses your own Google Gemini API key.',
+              'To keep $appName private and avoid charging you indirectly, AI uses your own Google Gemini API key.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -221,7 +221,7 @@ class _ApiKeySetupSheetState extends ConsumerState<_ApiKeySetupSheet> {
             ),
             const _TutorialStep(
               number: '3',
-              text: 'Copy the key and paste it below. Cheq will test it before enabling AI.',
+              text: 'Copy the key and paste it below. $appName will test it before enabling AI.',
             ),
             const SizedBox(height: 24),
             TextField(
