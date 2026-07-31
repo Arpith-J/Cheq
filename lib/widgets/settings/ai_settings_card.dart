@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/ai_settings_provider.dart';
+
 class AiSettingsCard extends ConsumerWidget {
   const AiSettingsCard({super.key});
 
@@ -32,26 +33,48 @@ class AiSettingsCard extends ConsumerWidget {
         children: [
           SwitchListTile.adaptive(
             title: const Text(
-              'AI Smart Scheduling',
+              'AI Auto-Categorizer',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: const Text(
-              'Use Gemini to resolve schedule conflicts automatically.',
+              'Automatically suggest categories for new tasks.',
             ),
             secondary: Icon(
-              Icons.auto_awesome,
-              color: aiState.isAiEnabled ? cs.primary : cs.onSurfaceVariant,
+              Icons.label_outline_rounded,
+              color: aiState.isCategorizerEnabled ? cs.primary : cs.onSurfaceVariant,
             ),
-            value: aiState.isAiEnabled,
+            value: aiState.isCategorizerEnabled,
             onChanged: (value) {
-              if (value && aiState.apiKey == null) {
+              if (value && (aiState.apiKey == null || aiState.apiKey!.isEmpty)) {
                 _showApiTutorialSheet(context, ref);
               } else {
-                ref.read(aiSettingsProvider.notifier).toggleAiEnabled(value);
+                ref.read(aiSettingsProvider.notifier).toggleCategorizer(value);
               }
             },
           ),
-          if (aiState.isAiEnabled && aiState.apiKey != null)
+          const Divider(height: 1, indent: 56, endIndent: 16),
+          SwitchListTile.adaptive(
+            title: const Text(
+              'AI Smart Rescheduler',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Intelligently shift tasks when conflicts occur.',
+            ),
+            secondary: Icon(
+              Icons.schedule_rounded,
+              color: aiState.isReschedulerEnabled ? cs.primary : cs.onSurfaceVariant,
+            ),
+            value: aiState.isReschedulerEnabled,
+            onChanged: (value) {
+              if (value && (aiState.apiKey == null || aiState.apiKey!.isEmpty)) {
+                _showApiTutorialSheet(context, ref);
+              } else {
+                ref.read(aiSettingsProvider.notifier).toggleRescheduler(value);
+              }
+            },
+          ),
+          if (aiState.apiKey != null && aiState.apiKey!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
               child: Row(
@@ -123,7 +146,7 @@ class _ApiKeySetupSheetState extends ConsumerState<_ApiKeySetupSheet> {
 
     try {
       await ref.read(aiSettingsProvider.notifier).saveApiKey(key);
-      await ref.read(aiSettingsProvider.notifier).toggleAiEnabled(true);
+      await ref.read(aiSettingsProvider.notifier).enableAll();
 
       if (mounted) Navigator.of(context).pop();
     } catch (_) {
