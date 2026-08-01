@@ -27,6 +27,12 @@ class TrophyRoomScreen extends ConsumerWidget {
       description: 'Keep your daily streak alive',
       icon: Icons.local_fire_department_rounded,
     ),
+    _Badge(
+      id: cleanSlateBadge,
+      title: 'Clean Slate',
+      description: '7 days in a row with zero overdue tasks',
+      icon: Icons.auto_awesome_rounded,
+    ),
   ];
 
   @override

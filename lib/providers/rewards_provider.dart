@@ -18,6 +18,7 @@ const int todoListCompletionCoins = 10;
 const int plannerBaseCoins = 10;
 const int plannerDeepWorkBonusCoins = 25;
 const int perfectDayBonusCoins = 50;
+const int cleanSlateBonusCoins = 200;
 
 // ---------------------------------------------------------------------------
 // Badge IDs
@@ -26,6 +27,7 @@ const int perfectDayBonusCoins = 50;
 const String nightOwlBadge = 'Night Owl';
 const String scholarBadge = 'The Scholar';
 const String unbreakableBadge = 'Unbreakable';
+const String cleanSlateBadge = 'Clean Slate';
 
 // ---------------------------------------------------------------------------
 // Live stream of the user's economy document
@@ -122,6 +124,81 @@ class RewardsNotifier extends Notifier<UserModel> {
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Perfect day commit failed: $e');
+    }
+  }
+
+  /// Evaluates the "Clean Slate" badge: a rolling 7-day window with zero
+  /// overdue tasks. Runs at most once per calendar day (guarded by
+  /// `lastCleanSlateCheck`) so it never recomputes on every screen rebuild.
+  /// When earned, unlocks the badge and awards a +200 coin bonus.
+  Future<void> evaluateCleanSlateBadge(
+    List<PlannerModel> allHistoricalTasks,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    // Fast path: skip entirely if we already evaluated today.
+    final cachedLastCheck = state.lastCleanSlateCheck;
+    if (cachedLastCheck != null &&
+        cachedLastCheck.year == today.year &&
+        cachedLastCheck.month == today.month &&
+        cachedLastCheck.day == today.day) {
+      return;
+    }
+
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      final snapshot = await userRef.get();
+      final data = snapshot.data();
+      if (data == null) return;
+
+      // Re-check against Firestore so multi-device state is respected.
+      final lastCheck = UserModel.fromMap(data).lastCleanSlateCheck;
+      if (lastCheck != null &&
+          lastCheck.year == today.year &&
+          lastCheck.month == today.month &&
+          lastCheck.day == today.day) {
+        return;
+      }
+
+      final sevenDaysAgo = today.subtract(const Duration(days: 7));
+      final yesterdayEnd = today
+          .subtract(const Duration(days: 1))
+          .add(const Duration(hours: 23, minutes: 59, seconds: 59));
+
+      final tasksInLast7Days = allHistoricalTasks.where((task) {
+        final taskDate = DateTime(
+          task.startTime.year,
+          task.startTime.month,
+          task.startTime.day,
+        );
+        return !taskDate.isBefore(sevenDaysAgo) &&
+            !taskDate.isAfter(yesterdayEnd);
+      }).toList();
+
+      final hasNoOverdueTasks = tasksInLast7Days.every(
+        (task) => task.isDone || !task.endTime.isBefore(now),
+      );
+
+      if (tasksInLast7Days.isNotEmpty && hasNoOverdueTasks) {
+        await userRef.set({
+          'coins': FieldValue.increment(cleanSlateBonusCoins),
+          'unlockedBadges': FieldValue.arrayUnion([cleanSlateBadge]),
+          'lastCleanSlateCheck': Timestamp.fromDate(today),
+        }, SetOptions(merge: true));
+        debugPrint('Clean Slate badge unlocked: +$cleanSlateBonusCoins coins.');
+      } else {
+        // Remember the check even when the badge isn't earned yet so we
+        // don't re-run the evaluation for the rest of today.
+        await userRef.set({
+          'lastCleanSlateCheck': Timestamp.fromDate(today),
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      debugPrint('Clean Slate evaluation failed: $e');
     }
   }
 
