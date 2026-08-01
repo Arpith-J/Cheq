@@ -1,12 +1,14 @@
 // lib/providers/rewards_provider.dart
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
+import '../models/star_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
 import '../services/home_widget_service.dart';
@@ -23,6 +25,15 @@ const int plannerBaseCoins = 10;
 const int plannerDeepWorkBonusCoins = 25;
 const int perfectDayBonusCoins = 50;
 const int cleanSlateBonusCoins = 200;
+
+/// Cost of each star category in the Constellation Data Core.
+const Map<String, int> starCosts = {
+  'focus': 75,
+  'creativity': 100,
+  'academic': 125,
+};
+
+final Random _random = Random();
 
 // ---------------------------------------------------------------------------
 // Badge IDs
@@ -442,6 +453,52 @@ class RewardsNotifier extends Notifier<UserModel> {
       return true;
     } catch (e) {
       debugPrint('Widget skin equip failed: $e');
+      return false;
+    }
+  }
+
+  /// Purchases a star for the Constellation Data Core. Looks up the
+  /// category-specific cost, verifies the balance inside a Firestore
+  /// transaction, deducts the exact amount, and appends a randomly positioned
+  /// star to the user's `constellation`. Returns `true` when the star was
+  /// bought, `false` when the user can't afford it or the category is unknown.
+  Future<bool> purchaseStar(String category) async {
+    final cost = starCosts[category];
+    if (cost == null) return false;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    try {
+      final purchased = await FirebaseFirestore.instance.runTransaction(
+        (tx) async {
+          final snap = await tx.get(userRef);
+          final data = snap.data();
+          if (data == null) return false;
+
+          final coins = (data['coins'] as int?) ?? 0;
+          if (coins < cost) return false;
+
+          final star = StarModel(
+            id: 'star_${DateTime.now().millisecondsSinceEpoch}_'
+                '${_random.nextInt(9999)}',
+            category: category,
+            // Normalized coordinates within the visible canvas (0.1–0.9).
+            dx: 0.1 + _random.nextDouble() * 0.8,
+            dy: 0.1 + _random.nextDouble() * 0.8,
+          );
+
+          tx.update(userRef, {
+            'coins': FieldValue.increment(-cost),
+            'constellation': FieldValue.arrayUnion([star.toMap()]),
+          });
+          return true;
+        },
+      );
+      return purchased;
+    } catch (e) {
+      debugPrint('Star purchase failed: $e');
       return false;
     }
   }
