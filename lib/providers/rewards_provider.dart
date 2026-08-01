@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
+import '../theme/app_themes.dart';
 
 // ---------------------------------------------------------------------------
 // Economy Constants
@@ -16,6 +17,7 @@ const int todoItemCoins = 5;
 const int todoListCompletionCoins = 10;
 const int plannerBaseCoins = 10;
 const int plannerDeepWorkBonusCoins = 25;
+const int perfectDayBonusCoins = 50;
 
 // ---------------------------------------------------------------------------
 // Badge IDs
@@ -87,6 +89,42 @@ class RewardsNotifier extends Notifier<UserModel> {
     await _commit(uid, reward, badges);
   }
 
+  /// Evaluates the entire day whenever a Daily Planner task is completed.
+  /// When there is at least one task and every task is done, awards the
+  /// "perfect day": +50 coins and a streak increment. The streak can only
+  /// advance once per calendar day (tracked via `lastPerfectDay`).
+  Future<void> checkAndAwardPerfectDay(List<PlannerModel> todaysTasks) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || todaysTasks.isEmpty) return;
+    if (!todaysTasks.every((task) => task.isDone)) return;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      final snapshot = await userRef.get();
+      final data = snapshot.data();
+      if (data == null) return;
+
+      final lastPerfect = UserModel.fromMap(data).lastPerfectDay;
+      if (lastPerfect != null &&
+          lastPerfect.year == today.year &&
+          lastPerfect.month == today.month &&
+          lastPerfect.day == today.day) {
+        return;
+      }
+
+      await userRef.set({
+        'coins': FieldValue.increment(perfectDayBonusCoins),
+        'streakCount': FieldValue.increment(1),
+        'lastPerfectDay': Timestamp.fromDate(today),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Perfect day commit failed: $e');
+    }
+  }
+
   /// Reverses a Daily Planner task reward when it is unchecked.
   /// Deducts the exact amount that was originally awarded and resets
   /// `coinsAwarded` back to 0 so a future re-check re-awards cleanly.
@@ -121,6 +159,66 @@ class RewardsNotifier extends Notifier<UserModel> {
         -todoListCompletionCoins,
         const [],
       );
+
+  /// Purchases a shop theme. Atomically verifies the balance inside a Firestore
+  /// transaction so two devices can never overspend. Returns `true` when the
+  /// theme was unlocked (or already owned), `false` when unaffordable/invalid.
+  Future<bool> purchaseTheme(String themeId, int cost) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+
+    final entry = themeEntryById(themeId);
+    if (entry == null || entry.cost <= 0) return false;
+
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    try {
+      final unlocked = await FirebaseFirestore.instance.runTransaction(
+        (tx) async {
+          final snap = await tx.get(userRef);
+          final data = snap.data();
+          if (data == null) return false;
+
+          final coins = (data['coins'] as int?) ?? 0;
+          final unlockedThemes =
+              (data['unlockedThemes'] as List<dynamic>? ?? const [])
+                  .cast<String>();
+
+          if (unlockedThemes.contains(themeId)) return true;
+          if (coins < cost) return false;
+
+          tx.update(userRef, {
+            'coins': FieldValue.increment(-cost),
+            'unlockedThemes': FieldValue.arrayUnion([themeId]),
+          });
+          return true;
+        },
+      );
+      return unlocked;
+    } catch (e) {
+      debugPrint('Theme purchase failed: $e');
+      return false;
+    }
+  }
+
+  /// Equips an unlocked theme, persisting the choice to Firestore so it
+  /// follows the user across devices. No-op if the theme isn't owned.
+  Future<bool> equipTheme(String themeId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+
+    if (!state.unlockedThemes.contains(themeId)) return false;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set({'activeTheme': themeId}, SetOptions(merge: true));
+      return true;
+    } catch (e) {
+      debugPrint('Theme equip failed: $e');
+      return false;
+    }
+  }
 
   Future<void> _commit(String? uid, int coinDelta, List<String> badges) async {
     if (uid == null) return;

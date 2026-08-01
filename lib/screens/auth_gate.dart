@@ -64,6 +64,8 @@ class AuthService {
       'coins': 0,
       'streakCount': 0,
       'unlockedBadges': [],
+      'unlockedThemes': ['default'],
+      'activeTheme': 'default',
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
