@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
 import '../models/user_model.dart';
+import '../services/firestore_service.dart';
 
 // ---------------------------------------------------------------------------
 // Economy Constants
@@ -65,6 +66,8 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// Daily Planner task completion.
   /// +10 base coins, +25 "Deep Work" bonus when the task runs >= 2 hours,
   /// and unlocks the "Night Owl" badge when the task ends at/after 10 PM.
+  /// The exact reward is persisted onto the task (`coinsAwarded`) BEFORE the
+  /// user's balance is updated so it can be precisely revoked on uncheck.
   Future<void> awardPlannerTaskCompletion(PlannerModel entry) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -78,7 +81,23 @@ class RewardsNotifier extends Notifier<UserModel> {
       if (entry.endTime.hour >= 22) nightOwlBadge,
     ];
 
+    await FirestoreService.instance
+        .saveTask(entry.copyWith(coinsAwarded: reward, isRewarded: true));
+
     await _commit(uid, reward, badges);
+  }
+
+  /// Reverses a Daily Planner task reward when it is unchecked.
+  /// Deducts the exact amount that was originally awarded and resets
+  /// `coinsAwarded` back to 0 so a future re-check re-awards cleanly.
+  Future<void> revokePlannerTaskCompletion(PlannerModel entry) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || entry.coinsAwarded <= 0) return;
+
+    await FirestoreService.instance
+        .saveTask(entry.copyWith(coinsAwarded: 0, isRewarded: false));
+
+    await _commit(uid, -entry.coinsAwarded, const []);
   }
 
   /// Individual To-Do item completion: flat +5 coins.
