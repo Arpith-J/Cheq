@@ -8,6 +8,7 @@ class UserModel {
   final int coins;
   final int streakCount;
   final DateTime? lastPerfectDay;
+  final DateTime? lastCleanSlateCheck;
   final List<String> unlockedBadges;
   final List<String> unlockedThemes;
   final String activeTheme;
@@ -20,6 +21,7 @@ class UserModel {
     this.coins = 0,
     this.streakCount = 0,
     this.lastPerfectDay,
+    this.lastCleanSlateCheck,
     this.unlockedBadges = const [],
     this.unlockedThemes = const ['default'],
     this.activeTheme = 'default',
@@ -33,6 +35,7 @@ class UserModel {
     int? coins,
     int? streakCount,
     DateTime? lastPerfectDay,
+    DateTime? lastCleanSlateCheck,
     List<String>? unlockedBadges,
     List<String>? unlockedThemes,
     String? activeTheme,
@@ -45,6 +48,7 @@ class UserModel {
       coins: coins ?? this.coins,
       streakCount: streakCount ?? this.streakCount,
       lastPerfectDay: lastPerfectDay ?? this.lastPerfectDay,
+      lastCleanSlateCheck: lastCleanSlateCheck ?? this.lastCleanSlateCheck,
       unlockedBadges: unlockedBadges ?? this.unlockedBadges,
       unlockedThemes: unlockedThemes ?? this.unlockedThemes,
       activeTheme: activeTheme ?? this.activeTheme,
@@ -60,6 +64,9 @@ class UserModel {
         'streakCount': streakCount,
         'lastPerfectDay':
             lastPerfectDay != null ? Timestamp.fromDate(lastPerfectDay!) : null,
+        'lastCleanSlateCheck': lastCleanSlateCheck != null
+            ? Timestamp.fromDate(lastCleanSlateCheck!)
+            : null,
         'unlockedBadges': unlockedBadges,
         'unlockedThemes': unlockedThemes,
         'activeTheme': activeTheme,
@@ -72,7 +79,8 @@ class UserModel {
         photoUrl: map['photoUrl'] as String?,
         coins: (map['coins'] as int?) ?? 0,
         streakCount: (map['streakCount'] as int?) ?? 0,
-        lastPerfectDay: _parsePerfectDay(map['lastPerfectDay']),
+        lastPerfectDay: _parseTimestamp(map['lastPerfectDay']),
+        lastCleanSlateCheck: _parseTimestamp(map['lastCleanSlateCheck']),
         unlockedBadges: (map['unlockedBadges'] as List<dynamic>? ?? const [])
             .cast<String>(),
         unlockedThemes:
@@ -81,7 +89,7 @@ class UserModel {
         activeTheme: (map['activeTheme'] as String?) ?? 'default',
       );
 
-  static DateTime? _parsePerfectDay(dynamic value) {
+  static DateTime? _parseTimestamp(dynamic value) {
     if (value == null) return null;
     if (value is DateTime) return value;
     if (value is Timestamp) return value.toDate();

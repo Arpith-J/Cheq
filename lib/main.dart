@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +12,7 @@ import 'providers/theme_provider.dart';
 import 'providers/custom_theme_provider.dart';
 import 'providers/notification_settings_provider.dart'; 
 import 'providers/planner_provider.dart';
+import 'providers/rewards_provider.dart';
 import '../services/notification_service.dart';
 
 final sharedPrefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
@@ -46,8 +49,12 @@ void main() async {
       container.read(themeModeProvider.notifier).loadSettings(user.uid);
       // B. Force Firestore to load local task cache BEFORE drawing the screen
       // We give it a tiny 500ms timeout just in case, so it never freezes the app.
-      await container.read(firestorePlannerStreamProvider.future)
+      final tasks = await container.read(firestorePlannerStreamProvider.future)
           .timeout(const Duration(milliseconds: 500));
+      // C. Silently evaluate the "Clean Slate" badge in the background.
+      unawaited(
+        container.read(rewardsProvider.notifier).evaluateCleanSlateBadge(tasks),
+      );
     } catch (e) {
       debugPrint("Pre-warm timeout/error (safe to ignore): $e");
     }
