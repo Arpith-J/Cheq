@@ -328,6 +328,22 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                                               isRewarded: true,
                                             ));
                                           }
+
+                                          final todaysTasks =
+                                              ref.read(
+                                                  selectedDayEntriesProvider);
+                                          final updatedTasks =
+                                              todaysTasks
+                                                  .map((t) =>
+                                                      t.id == entry.id
+                                                          ? t.copyWith(
+                                                              isDone: true)
+                                                          : t)
+                                                  .toList();
+                                          await ref
+                                              .read(rewardsProvider.notifier)
+                                              .checkAndAwardPerfectDay(
+                                                  updatedTasks);
                                         } else if (!isNowDone &&
                                             entry.isDone) {
                                           if (entry.coinsAwarded > 0) {
