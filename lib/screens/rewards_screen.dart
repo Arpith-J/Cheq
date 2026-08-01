@@ -19,6 +19,7 @@ class RewardsScreen extends ConsumerStatefulWidget {
 
 class _RewardsScreenState extends ConsumerState<RewardsScreen> {
   String? _busyThemeId;
+  String? _busySkinId;
 
   Future<void> _buyTheme(ThemeCatalogEntry entry, int coins) async {
     if (entry.cost <= 0 || coins < entry.cost) return;
@@ -60,12 +61,52 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
     );
   }
 
+  Future<void> _buySkin(WidgetSkinEntry entry, int coins) async {
+    if (entry.cost <= 0 || coins < entry.cost) return;
+    setState(() => _busySkinId = entry.id);
+
+    final ok = await ref
+        .read(rewardsProvider.notifier)
+        .purchaseWidgetSkin(entry.id, entry.cost);
+
+    if (!mounted) return;
+    setState(() => _busySkinId = null);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? '${entry.name} unlocked! Tap Equip to apply it to your home screen widget.'
+            : 'Not enough coins for ${entry.name}.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _equipSkin(WidgetSkinEntry entry) async {
+    setState(() => _busySkinId = entry.id);
+
+    final ok =
+        await ref.read(rewardsProvider.notifier).equipWidgetSkin(entry.id);
+
+    if (!mounted) return;
+    setState(() => _busySkinId = null);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? '${entry.name} applied to your home screen widget!'
+            : 'Could not equip ${entry.name}.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userStreamProvider);
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
         body: userAsync.when(
@@ -79,6 +120,7 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
                 unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                 tabs: [
                   Tab(text: 'Bundles'),
+                  Tab(text: 'Widget Skins'),
                   Tab(text: 'Avatars'),
                 ],
               ),
@@ -92,6 +134,14 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
                       busyThemeId: _busyThemeId,
                       onBuy: _buyTheme,
                       onEquip: _equipTheme,
+                    ),
+                    _SkinsGrid(
+                      unlockedSkins: user.unlockedWidgetSkins,
+                      activeSkin: user.activeWidgetSkin,
+                      coins: user.coins,
+                      busySkinId: _busySkinId,
+                      onBuy: _buySkin,
+                      onEquip: _equipSkin,
                     ),
                     const _ComingSoonPlaceholder(
                       icon: Icons.face_retouching_natural_rounded,
@@ -233,8 +283,13 @@ class _BundlesGrid extends StatelessWidget {
         final canAfford = coins >= entry.cost;
         final isBusy = busyThemeId == entry.id;
 
-        return _ThemeCard(
-          entry: entry,
+        return _ShopCard(
+          name: entry.name,
+          description: entry.description,
+          cost: entry.cost,
+          icon: entry.icon,
+          previewBackground: entry.previewBackground,
+          previewAccent: entry.previewAccent,
           isUnlocked: isUnlocked,
           isActive: isActive,
           canAfford: canAfford,
@@ -247,9 +302,72 @@ class _BundlesGrid extends StatelessWidget {
   }
 }
 
-class _ThemeCard extends StatelessWidget {
-  const _ThemeCard({
-    required this.entry,
+// ---------------------------------------------------------------------------
+// Widget Skins Grid
+// ---------------------------------------------------------------------------
+
+class _SkinsGrid extends StatelessWidget {
+  const _SkinsGrid({
+    required this.unlockedSkins,
+    required this.activeSkin,
+    required this.coins,
+    required this.busySkinId,
+    required this.onBuy,
+    required this.onEquip,
+  });
+
+  final List<String> unlockedSkins;
+  final String activeSkin;
+  final int coins;
+  final String? busySkinId;
+  final void Function(WidgetSkinEntry entry, int coins) onBuy;
+  final void Function(WidgetSkinEntry entry) onEquip;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.78,
+      ),
+      itemCount: widgetSkinCatalog.length,
+      itemBuilder: (ctx, i) {
+        final entry = widgetSkinCatalog[i];
+        final isUnlocked = unlockedSkins.contains(entry.id);
+        final isActive = activeSkin == entry.id;
+        final canAfford = coins >= entry.cost;
+        final isBusy = busySkinId == entry.id;
+
+        return _ShopCard(
+          name: entry.name,
+          description: entry.description,
+          cost: entry.cost,
+          icon: entry.icon,
+          previewBackground: entry.previewBackground,
+          previewAccent: entry.previewAccent,
+          isUnlocked: isUnlocked,
+          isActive: isActive,
+          canAfford: canAfford,
+          isBusy: isBusy,
+          onBuy: () => onBuy(entry, coins),
+          onEquip: () => onEquip(entry),
+        );
+      },
+    );
+  }
+}
+
+class _ShopCard extends StatelessWidget {
+  const _ShopCard({
+    required this.name,
+    required this.description,
+    required this.cost,
+    required this.icon,
+    required this.previewBackground,
+    required this.previewAccent,
     required this.isUnlocked,
     required this.isActive,
     required this.canAfford,
@@ -258,7 +376,12 @@ class _ThemeCard extends StatelessWidget {
     required this.onEquip,
   });
 
-  final ThemeCatalogEntry entry;
+  final String name;
+  final String description;
+  final int cost;
+  final IconData icon;
+  final Color previewBackground;
+  final Color previewAccent;
   final bool isUnlocked;
   final bool isActive;
   final bool canAfford;
@@ -289,14 +412,14 @@ class _ThemeCard extends StatelessWidget {
           // ── Preview swatch ────────────────────────────────────────────────
           Expanded(
             child: Container(
-              color: entry.previewBackground,
+              color: previewBackground,
               child: Stack(
                 children: [
                   Center(
                     child: Icon(
-                      entry.icon,
+                      icon,
                       size: 42,
-                      color: entry.previewAccent,
+                      color: previewAccent,
                     ),
                   ),
                   if (isActive)
@@ -323,7 +446,7 @@ class _ThemeCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.name,
+                  name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -333,7 +456,7 @@ class _ThemeCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  entry.description,
+                  description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -385,7 +508,7 @@ class _ThemeCard extends StatelessWidget {
         size: 16,
       ),
       label: Text(
-        isBusy ? 'Buying…' : 'Buy for ${entry.cost} coins',
+        isBusy ? 'Buying…' : 'Buy for $cost coins',
       ),
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(36),

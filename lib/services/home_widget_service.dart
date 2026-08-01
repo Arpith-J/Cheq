@@ -4,7 +4,12 @@ import 'package:home_widget/home_widget.dart';
 import '../models/planner_model.dart';
 
 class HomeWidgetService {
-  static Future<void> updateHomeScreenWidgetData(List<PlannerModel> tasks) async {
+  static String activeWidgetSkin = 'default';
+
+  static Future<void> updateHomeScreenWidgetData(
+    List<PlannerModel> tasks, {
+    String? widgetSkin,
+  }) async {
   try {
     final List<Map<String, dynamic>> mappedTasks = tasks.map((t) {
       final hour = t.startTime.hour % 12 == 0 ? 12 : t.startTime.hour % 12;
@@ -27,11 +32,13 @@ class HomeWidgetService {
     }).toList();
 
     final String tasksJson = jsonEncode(mappedTasks);
-    debugPrint("🚀 WIDGET DATA PUSHED: $tasksJson");
+    final String resolvedSkin = widgetSkin ?? activeWidgetSkin;
+    debugPrint("🚀 WIDGET DATA PUSHED: $tasksJson (skin: $resolvedSkin)");
 
     await Future.wait([
       HomeWidget.saveWidgetData('daily_tasks_key', tasksJson),
       HomeWidget.saveWidgetData('flutter.daily_tasks_key', tasksJson),
+      HomeWidget.saveWidgetData('widget_skin', resolvedSkin),
     ]);
 
     await HomeWidget.updateWidget(
