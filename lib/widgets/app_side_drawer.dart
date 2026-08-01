@@ -6,6 +6,7 @@ import '../screens/main_scaffold.dart'; // To access the ProfileAvatar widget
 import '../screens/settings_screen.dart';
 import '../screens/stats_screen.dart';
 import '../screens/trophy_room_screen.dart';
+import '../screens/constellation_screen.dart';
 
 const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class AppSideDrawer extends ConsumerWidget {
@@ -70,6 +71,22 @@ class AppSideDrawer extends ConsumerWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const TrophyRoomScreen()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.auto_awesome_rounded, color: cs.primary),
+                  title: const Text(
+                    "Constellation",
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ConstellationScreen(),
+                      ),
                     );
                   },
                 ),

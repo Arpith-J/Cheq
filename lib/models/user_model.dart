@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'star_model.dart';
 
 class UserModel {
   final String uid;
@@ -14,6 +15,7 @@ class UserModel {
   final String activeTheme;
   final List<String> unlockedWidgetSkins;
   final String activeWidgetSkin;
+  final List<StarModel> constellation;
 
   const UserModel({
     required this.uid,
@@ -29,6 +31,7 @@ class UserModel {
     this.activeTheme = 'default',
     this.unlockedWidgetSkins = const ['default'],
     this.activeWidgetSkin = 'default',
+    this.constellation = const [],
   });
 
   UserModel copyWith({
@@ -45,6 +48,7 @@ class UserModel {
     String? activeTheme,
     List<String>? unlockedWidgetSkins,
     String? activeWidgetSkin,
+    List<StarModel>? constellation,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -60,6 +64,7 @@ class UserModel {
       activeTheme: activeTheme ?? this.activeTheme,
       unlockedWidgetSkins: unlockedWidgetSkins ?? this.unlockedWidgetSkins,
       activeWidgetSkin: activeWidgetSkin ?? this.activeWidgetSkin,
+      constellation: constellation ?? this.constellation,
     );
   }
 
@@ -80,6 +85,7 @@ class UserModel {
         'activeTheme': activeTheme,
         'unlockedWidgetSkins': unlockedWidgetSkins,
         'activeWidgetSkin': activeWidgetSkin,
+        'constellation': constellation.map((s) => s.toMap()).toList(),
       };
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -101,6 +107,9 @@ class UserModel {
             (map['unlockedWidgetSkins'] as List<dynamic>? ?? const ['default'])
                 .cast<String>(),
         activeWidgetSkin: (map['activeWidgetSkin'] as String?) ?? 'default',
+        constellation: (map['constellation'] as List<dynamic>? ?? const [])
+            .map((e) => StarModel.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList(),
       );
 
   static DateTime? _parseTimestamp(dynamic value) {
