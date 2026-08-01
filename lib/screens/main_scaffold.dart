@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../providers/coins_provider.dart';
 import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'rewards_screen.dart';
@@ -52,7 +51,6 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   @override
   Widget build(BuildContext context) {
     final user      = FirebaseAuth.instance.currentUser;
-    final coinCount = ref.watch(coinsProvider); // live — rebuilds on change
     final theme     = Theme.of(context);
     final cs        = theme.colorScheme;
 
@@ -126,21 +124,8 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
           ),
         ),
 
-        // Right — coin pill
-        actions: [
-          coinCount.when(
-            data: (coins) => _CoinPill(coinCount: coins),
-            loading: () => const Center(
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-            error: (_, _) => const Icon(Icons.error_outline, color: Colors.red),
-          ),
-          const SizedBox(width: 16),
-        ],
+        // Right — reserved spacing
+        actions: const [SizedBox(width: 16)],
       ),
 
       // ── Body — IndexedStack preserves scroll state per tab ──────────────
@@ -208,92 +193,6 @@ class ProfileAvatar extends StatelessWidget {
             color: cs.primary,
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _CoinPill
-// ---------------------------------------------------------------------------
-
-class _CoinPill extends StatelessWidget {
-  const _CoinPill({required this.coinCount});
-
-  final int coinCount;
-
-  /// Compact display: 1200 → "1.2k" | 1,500,000 → "1.5M"
-  String _format(int n) {
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
-    if (n >= 1000)    return '${(n / 1000).toStringAsFixed(1)}k';
-    return n.toString();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    // Dynamic background color mapping based on active theme brightness
-    final containerBg = isDark 
-        ? const Color(0xFFFFF8E1).withValues(alpha: 0.12)  // Translucent glowing golden tint for dark mode
-        : const Color(0xFFFFF8E1);                         // Flat warm amber surface for light mode
-
-    final textAndIconColor = isDark
-        ? const Color(0xFFFFD54F)  // Vibrant amber-gold for text readability in dark mode
-        : const Color(0xFF6D4C00);  // Deep amber-brown for strong contrast in light mode
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: containerBg,           // warm amber surface
-        borderRadius: BorderRadius.circular(999), // perfect capsule
-        border: Border.all(
-          color: const Color(0xFFFFD54F).withValues(alpha: isDark? 0.35: 0.55),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color:      const Color(0xFFFFD54F).withValues(alpha: isDark ? 0.15 : 0.22),
-            blurRadius: isDark ? 12 : 8,
-            offset:     const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.monetization_on_rounded,
-            size:  18,
-            color: textAndIconColor,
-          ),
-          const SizedBox(width: 5),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            transitionBuilder: (child, anim) => FadeTransition(
-              opacity: anim,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.4),
-                  end:   Offset.zero,
-                ).animate(anim),
-                child: child,
-              ),
-            ),
-            child: Text(
-              _format(coinCount),
-              key: ValueKey(coinCount),            // triggers AnimatedSwitcher
-              style: TextStyle(
-                fontSize:      14,
-                fontWeight:    FontWeight.w700,
-                color:         textAndIconColor,  // deep amber-brown
-                letterSpacing: 0.2,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
