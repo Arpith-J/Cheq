@@ -313,27 +313,38 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                                         final isNowDone = isChecked ?? false;
 
                                         if (isNowDone && !entry.isDone) {
-                                          // Mark the task done and flag it as
-                                          // rewarded to prevent double-awards.
-                                          await FirestoreService.instance
-                                              .saveTask(entry.copyWith(
-                                            isDone: true,
-                                            isRewarded: true,
-                                          ));
-
-                                          if (!entry.isRewarded) {
+                                          if (entry.coinsAwarded == 0) {
                                             await ref
                                                 .read(rewardsProvider.notifier)
                                                 .awardPlannerTaskCompletion(
-                                                    entry);
+                                                    entry.copyWith(
+                                              isDone: true,
+                                              isRewarded: true,
+                                            ));
+                                          } else {
+                                            await FirestoreService.instance
+                                                .saveTask(entry.copyWith(
+                                              isDone: true,
+                                              isRewarded: true,
+                                            ));
                                           }
-                                        } else {
-                                          // Unchecking keeps isRewarded=true so
-                                          // re-checking cannot re-award coins.
-                                          await FirestoreService.instance
-                                              .saveTask(entry.copyWith(
-                                            isDone: isNowDone,
-                                          ));
+                                        } else if (!isNowDone &&
+                                            entry.isDone) {
+                                          if (entry.coinsAwarded > 0) {
+                                            await ref
+                                                .read(rewardsProvider.notifier)
+                                                .revokePlannerTaskCompletion(
+                                                    entry.copyWith(
+                                              isDone: false,
+                                              isRewarded: false,
+                                            ));
+                                          } else {
+                                            await FirestoreService.instance
+                                                .saveTask(entry.copyWith(
+                                              isDone: false,
+                                              isRewarded: false,
+                                            ));
+                                          }
                                         }
                                         syncNativeAlarms(ref);
                                       },
