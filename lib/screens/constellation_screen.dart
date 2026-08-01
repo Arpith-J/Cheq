@@ -6,18 +6,58 @@ import '../models/user_model.dart';
 import '../providers/rewards_provider.dart';
 import '../widgets/constellation_painter.dart';
 
-/// Constellation Data Core — a gamified, interactive star map. Users spend
-/// coins to buy glowing stars that connect into a sprawling network rendered
-/// with a custom painter.
-class ConstellationScreen extends ConsumerStatefulWidget {
+/// Full-screen immersive mode for the Constellation Data Core. Uses a deep
+/// black scaffold with a safe-area close button; the interactive star field
+/// and purchase panel live in the shared [ConstellationView].
+class ConstellationScreen extends StatelessWidget {
   const ConstellationScreen({super.key});
 
   @override
-  ConsumerState<ConstellationScreen> createState() =>
-      _ConstellationScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: ConstellationView()),
+          // ── Exit full-screen mode ───────────────────────────────────────
+          Positioned(
+            top: 0,
+            left: 0,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.12),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
+/// The reusable heart of the Constellation feature: the animated CustomPaint
+/// star field with pan/drag interaction, an empty-state hint, and the
+/// glassmorphism "buy star" panel. When [onFullScreen] is provided, a floating
+/// full-screen button is rendered in the top-right corner.
+class ConstellationView extends ConsumerStatefulWidget {
+  const ConstellationView({super.key, this.onFullScreen});
+
+  final VoidCallback? onFullScreen;
+
+  @override
+  ConsumerState<ConstellationView> createState() =>
+      _ConstellationViewState();
+}
+
+class _ConstellationViewState extends ConsumerState<ConstellationView>
     with TickerProviderStateMixin {
   late final AnimationController _controller;
   Offset _panOffset = Offset.zero;
@@ -59,61 +99,68 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userStreamProvider);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('Constellation Data Core'),
+    return userAsync.when(
+      loading: () => const Center(
+        child: CircularProgressIndicator(color: Colors.white54),
       ),
-      body: userAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (user) => Stack(
-          children: [
-            // ── Interactive star field ─────────────────────────────────────
-            Positioned.fill(
-              child: GestureDetector(
-                onPanUpdate: (details) {
-                  setState(() => _panOffset += details.delta);
-                },
-                onPanEnd: (_) => setState(() => _panOffset = Offset.zero),
-                child: AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, _) => CustomPaint(
-                    size: Size.infinite,
-                    painter: ConstellationPainter(
-                      stars: user.constellation,
-                      animationValue: _controller.value,
-                      panOffset: _panOffset,
-                    ),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (user) => Stack(
+        children: [
+          // ── Interactive star field ─────────────────────────────────────
+          Positioned.fill(
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                setState(() => _panOffset += details.delta);
+              },
+              onPanEnd: (_) => setState(() => _panOffset = Offset.zero),
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, _) => CustomPaint(
+                  size: Size.infinite,
+                  painter: ConstellationPainter(
+                    stars: user.constellation,
+                    animationValue: _controller.value,
+                    panOffset: _panOffset,
                   ),
                 ),
               ),
             ),
-            if (user.constellation.isEmpty)
-              const Center(
-                child: Text(
-                  'Your constellation is empty.\nBuy a star below to begin.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white38, fontSize: 14),
-                ),
-              ),
-            // ── Glassmorphism purchase panel ───────────────────────────────
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 28,
-              child: _BuildPanel(
-                user: user,
-                isBuying: _isBuying,
-                onBuyStar: _buyStar,
+          ),
+          if (user.constellation.isEmpty)
+            const Center(
+              child: Text(
+                'Your constellation is empty.\nBuy a star below to begin.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white38, fontSize: 14),
               ),
             ),
-          ],
-        ),
+          // ── Full screen affordance ─────────────────────────────────────
+          if (widget.onFullScreen != null)
+            Positioned(
+              top: 12,
+              right: 12,
+              child: IconButton(
+                onPressed: widget.onFullScreen,
+                icon: const Icon(Icons.fullscreen, color: Colors.white),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.12),
+                  foregroundColor: Colors.white,
+                ),
+                tooltip: 'Full screen',
+              ),
+            ),
+          // ── Glassmorphism purchase panel ───────────────────────────────
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 28,
+            child: _BuildPanel(
+              user: user,
+              isBuying: _isBuying,
+              onBuyStar: _buyStar,
+            ),
+          ),
+        ],
       ),
     );
   }
