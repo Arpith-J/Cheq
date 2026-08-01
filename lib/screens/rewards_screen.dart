@@ -78,14 +78,14 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
                 labelStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                 tabs: [
-                  Tab(text: 'Themes'),
+                  Tab(text: 'Bundles'),
                   Tab(text: 'Avatars'),
                 ],
               ),
               Expanded(
                 child: TabBarView(
                   children: [
-                    _ThemesGrid(
+                    _BundlesGrid(
                       unlockedThemes: user.unlockedThemes,
                       activeTheme: user.activeTheme,
                       coins: user.coins,
@@ -195,11 +195,11 @@ class _CoinsBalanceHero extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Themes Grid
+// Bundles Grid
 // ---------------------------------------------------------------------------
 
-class _ThemesGrid extends StatelessWidget {
-  const _ThemesGrid({
+class _BundlesGrid extends StatelessWidget {
+  const _BundlesGrid({
     required this.unlockedThemes,
     required this.activeTheme,
     required this.coins,

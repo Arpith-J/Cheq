@@ -10,8 +10,6 @@ import 'providers/theme_provider.dart';
 import 'providers/custom_theme_provider.dart';
 import 'providers/notification_settings_provider.dart'; 
 import 'providers/planner_provider.dart';
-import 'providers/rewards_provider.dart';
-import 'theme/app_themes.dart';
 import '../services/notification_service.dart';
 
 final sharedPrefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
@@ -72,24 +70,14 @@ class CheqApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
-    final currentAccent = ref.watch(customAccentProvider);
-    final activeTheme = ref.watch(rewardsProvider).activeTheme;
-
-    // The "default" theme is seed-based so it keeps honoring the user's
-    // custom accent + light/dark toggle. Purchasable themes are fixed palettes.
-    final bool isDefaultTheme = activeTheme == themeIdDefault;
-    final ThemeData? fixedTheme = appThemes[activeTheme];
+    final appTheme = ref.watch(appThemeProvider);
 
     return MaterialApp(
       title: const String.fromEnvironment('APP_NAME', defaultValue: 'Ariadne'),
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
-      theme: isDefaultTheme
-          ? buildDefaultTheme(accent: currentAccent, brightness: Brightness.light)
-          : fixedTheme ?? buildDefaultTheme(accent: currentAccent, brightness: Brightness.light),
-      darkTheme: isDefaultTheme
-          ? buildDefaultTheme(accent: currentAccent, brightness: Brightness.dark)
-          : fixedTheme ?? buildDefaultTheme(accent: currentAccent, brightness: Brightness.dark),
+      theme: appTheme.light,
+      darkTheme: appTheme.dark,
       home: const AuthGate(),
     );
   }

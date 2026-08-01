@@ -7,9 +7,9 @@ import 'package:flutter/material.dart';
 // ---------------------------------------------------------------------------
 
 const String themeIdDefault = 'default';
-const String themeIdOledBlack = 'oledBlack';
+const String themeIdOledMidnight = 'oledMidnight';
 const String themeIdCyberpunk = 'cyberpunk';
-const String themeIdPastel = 'pastel';
+const String themeIdSoftPaper = 'softPaper';
 
 // ---------------------------------------------------------------------------
 // Theme definitions
@@ -30,72 +30,112 @@ ThemeData buildDefaultTheme({
   );
 }
 
-/// Pure #000000 OLED theme. Dark-only by design.
-final ThemeData oledBlackTheme = ThemeData(
+/// Pure #000000 OLED bundle. Deep, power-saving blacks on every surface with
+/// very dark grey cards and sharp, almost-square corners. Dark-only.
+final ThemeData oledMidnightTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.dark,
   scaffoldBackgroundColor: const Color(0xFF000000),
   colorScheme: ColorScheme.fromSeed(
-    seedColor: const Color(0xFF4caf50),
+    seedColor: const Color(0xFF66BB6A),
     brightness: Brightness.dark,
     primary: const Color(0xFF66BB6A),
     secondary: const Color(0xFF80CBC4),
     surface: const Color(0xFF000000),
     surfaceContainerLowest: const Color(0xFF000000),
-    surfaceContainerLow: const Color(0xFF0E0E0E),
-    surfaceContainer: const Color(0xFF141414),
-    surfaceContainerHigh: const Color(0xFF1B1B1B),
-    surfaceContainerHighest: const Color(0xFF242424),
+    surfaceContainerLow: const Color(0xFF0D0D0D),
+    surfaceContainer: const Color(0xFF131313),
+    surfaceContainerHigh: const Color(0xFF1A1A1A),
+    surfaceContainerHighest: const Color(0xFF232323),
+  ),
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Color(0xFF000000),
+    surfaceTintColor: Colors.transparent,
+    elevation: 0,
+  ),
+  cardTheme: const CardThemeData(
+    color: Color(0xFF131313),
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(4)),
+    ),
   ),
 );
 
-/// Dark cyberpunk theme with neon pink + cyan accents. Dark-only by design.
+/// Dark synthwave bundle. Deep navy/purple backdrop with high-contrast neon
+/// magenta and cyan accents. Dark-only by design.
 final ThemeData cyberpunkTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.dark,
-  scaffoldBackgroundColor: const Color(0xFF0A0A14),
+  scaffoldBackgroundColor: const Color(0xFF0D0B1E),
   colorScheme: ColorScheme.fromSeed(
     seedColor: const Color(0xFFFF2E88),
     brightness: Brightness.dark,
     primary: const Color(0xFFFF2E88),
     secondary: const Color(0xFF00F0FF),
     tertiary: const Color(0xFFAA44FF),
-    surface: const Color(0xFF131320),
-    surfaceContainerLowest: const Color(0xFF0A0A14),
-    surfaceContainerLow: const Color(0xFF171725),
-    surfaceContainer: const Color(0xFF1D1D2E),
-    surfaceContainerHigh: const Color(0xFF252538),
-    surfaceContainerHighest: const Color(0xFF2E2E45),
+    surface: const Color(0xFF131126),
+    surfaceContainerLowest: const Color(0xFF0D0B1E),
+    surfaceContainerLow: const Color(0xFF191632),
+    surfaceContainer: const Color(0xFF1F1B3B),
+    surfaceContainerHigh: const Color(0xFF282250),
+    surfaceContainerHighest: const Color(0xFF332B66),
     error: const Color(0xFFFF5C8A),
   ),
-);
-
-/// Soft, warm, light minimalist theme. Light-only by design.
-final ThemeData pastelTheme = ThemeData(
-  useMaterial3: true,
-  brightness: Brightness.light,
-  scaffoldBackgroundColor: const Color(0xFFFFF7EE),
-  colorScheme: ColorScheme.fromSeed(
-    seedColor: const Color(0xFFF4A6C0),
-    brightness: Brightness.light,
-    primary: const Color(0xFFE88CA8),
-    secondary: const Color(0xFF9DD8C6),
-    tertiary: const Color(0xFFB9A7E0),
-    surface: const Color(0xFFFFFDF8),
-    surfaceContainerLowest: const Color(0xFFFFF7EE),
-    surfaceContainerLow: const Color(0xFFFDF1E4),
-    surfaceContainer: const Color(0xFFF9EAD9),
-    surfaceContainerHigh: const Color(0xFFF5E1CC),
-    surfaceContainerHighest: const Color(0xFFEFD7BD),
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Color(0xFF0D0B1E),
+    surfaceTintColor: Colors.transparent,
+    elevation: 0,
+  ),
+  cardTheme: const CardThemeData(
+    color: Color(0xFF1F1B3B),
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(12)),
+      side: BorderSide(color: Color(0x2E00F0FF)),
+    ),
   ),
 );
 
-/// The three fixed palettes. The "default" theme is dynamic (accent-based)
+/// Warm, tactile, light bundle. Cream/off-white pages, completely flat UI
+/// (zero elevation) and heavily rounded, pillowy cards. Light-only by design.
+final ThemeData softPaperTheme = ThemeData(
+  useMaterial3: true,
+  brightness: Brightness.light,
+  scaffoldBackgroundColor: const Color(0xFFF4F0EB),
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: const Color(0xFFA98467),
+    brightness: Brightness.light,
+    primary: const Color(0xFF9A7B5F),
+    secondary: const Color(0xFF7BA38B),
+    tertiary: const Color(0xFFB8A27A),
+    surface: const Color(0xFFFDFBF7),
+    surfaceContainerLowest: const Color(0xFFF4F0EB),
+    surfaceContainerLow: const Color(0xFFF0EAE2),
+    surfaceContainer: const Color(0xFFEBE3D8),
+    surfaceContainerHigh: const Color(0xFFE4D9CB),
+    surfaceContainerHighest: const Color(0xFFDCCFC0),
+  ),
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Color(0xFFF4F0EB),
+    surfaceTintColor: Colors.transparent,
+    elevation: 0,
+  ),
+  cardTheme: const CardThemeData(
+    color: Color(0xFFFFFFFF),
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(28)),
+    ),
+  ),
+);
+
+/// The fixed premium bundles. The "default" theme is dynamic (accent-based)
 /// and therefore resolved separately in [buildDefaultTheme].
 final Map<String, ThemeData> appThemes = {
-  themeIdOledBlack: oledBlackTheme,
+  themeIdOledMidnight: oledMidnightTheme,
   themeIdCyberpunk: cyberpunkTheme,
-  themeIdPastel: pastelTheme,
+  themeIdSoftPaper: softPaperTheme,
 };
 
 // ---------------------------------------------------------------------------
@@ -132,10 +172,11 @@ const ThemeCatalogEntry defaultThemeEntry = ThemeCatalogEntry(
   previewAccent: Color(0xFF4caf50),
 );
 
-const ThemeCatalogEntry oledBlackThemeEntry = ThemeCatalogEntry(
-  id: themeIdOledBlack,
-  name: 'OLED Black',
-  description: 'Pure #000000 backgrounds for deep, power-saving blacks.',
+const ThemeCatalogEntry oledMidnightThemeEntry = ThemeCatalogEntry(
+  id: themeIdOledMidnight,
+  name: 'OLED Midnight',
+  description:
+      'Pure #000000 screens and sharp, minimalist cards for deep power-saving blacks.',
   cost: 500,
   icon: Icons.dark_mode_outlined,
   previewBackground: Color(0xFF000000),
@@ -145,28 +186,30 @@ const ThemeCatalogEntry oledBlackThemeEntry = ThemeCatalogEntry(
 const ThemeCatalogEntry cyberpunkThemeEntry = ThemeCatalogEntry(
   id: themeIdCyberpunk,
   name: 'Cyberpunk',
-  description: 'Neon pink and cyan accents against a dark synthwave night.',
+  description:
+      'Neon magenta and cyan slicing through a dark synthwave night.',
   cost: 1000,
   icon: Icons.electric_bolt_outlined,
-  previewBackground: Color(0xFF0A0A14),
+  previewBackground: Color(0xFF0D0B1E),
   previewAccent: Color(0xFFFF2E88),
 );
 
-const ThemeCatalogEntry pastelThemeEntry = ThemeCatalogEntry(
-  id: themeIdPastel,
-  name: 'Pastel',
-  description: 'Soft, warm, light minimalist colors for an easy on the eyes day.',
-  cost: 750,
+const ThemeCatalogEntry softPaperThemeEntry = ThemeCatalogEntry(
+  id: themeIdSoftPaper,
+  name: 'Soft Paper',
+  description:
+      'Warm cream pages with flat, pillowy rounded cards for a calm, tactile feel.',
+  cost: 1000,
   icon: Icons.wb_sunny_outlined,
-  previewBackground: Color(0xFFFFF7EE),
-  previewAccent: Color(0xFFE88CA8),
+  previewBackground: Color(0xFFF4F0EB),
+  previewAccent: Color(0xFF9A7B5F),
 );
 
 const List<ThemeCatalogEntry> appThemeCatalog = [
   defaultThemeEntry,
-  oledBlackThemeEntry,
+  oledMidnightThemeEntry,
   cyberpunkThemeEntry,
-  pastelThemeEntry,
+  softPaperThemeEntry,
 ];
 
 ThemeCatalogEntry? themeEntryById(String id) {
