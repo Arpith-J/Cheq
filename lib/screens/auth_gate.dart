@@ -66,6 +66,8 @@ class AuthService {
       'unlockedBadges': [],
       'unlockedThemes': ['default'],
       'activeTheme': 'default',
+      'unlockedWidgetSkins': ['default'],
+      'activeWidgetSkin': 'default',
       'createdAt': FieldValue.serverTimestamp(),
     });
   }

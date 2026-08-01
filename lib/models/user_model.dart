@@ -12,6 +12,8 @@ class UserModel {
   final List<String> unlockedBadges;
   final List<String> unlockedThemes;
   final String activeTheme;
+  final List<String> unlockedWidgetSkins;
+  final String activeWidgetSkin;
 
   const UserModel({
     required this.uid,
@@ -25,6 +27,8 @@ class UserModel {
     this.unlockedBadges = const [],
     this.unlockedThemes = const ['default'],
     this.activeTheme = 'default',
+    this.unlockedWidgetSkins = const ['default'],
+    this.activeWidgetSkin = 'default',
   });
 
   UserModel copyWith({
@@ -39,6 +43,8 @@ class UserModel {
     List<String>? unlockedBadges,
     List<String>? unlockedThemes,
     String? activeTheme,
+    List<String>? unlockedWidgetSkins,
+    String? activeWidgetSkin,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -52,6 +58,8 @@ class UserModel {
       unlockedBadges: unlockedBadges ?? this.unlockedBadges,
       unlockedThemes: unlockedThemes ?? this.unlockedThemes,
       activeTheme: activeTheme ?? this.activeTheme,
+      unlockedWidgetSkins: unlockedWidgetSkins ?? this.unlockedWidgetSkins,
+      activeWidgetSkin: activeWidgetSkin ?? this.activeWidgetSkin,
     );
   }
 
@@ -70,6 +78,8 @@ class UserModel {
         'unlockedBadges': unlockedBadges,
         'unlockedThemes': unlockedThemes,
         'activeTheme': activeTheme,
+        'unlockedWidgetSkins': unlockedWidgetSkins,
+        'activeWidgetSkin': activeWidgetSkin,
       };
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -87,6 +97,10 @@ class UserModel {
             (map['unlockedThemes'] as List<dynamic>? ?? const ['default'])
                 .cast<String>(),
         activeTheme: (map['activeTheme'] as String?) ?? 'default',
+        unlockedWidgetSkins:
+            (map['unlockedWidgetSkins'] as List<dynamic>? ?? const ['default'])
+                .cast<String>(),
+        activeWidgetSkin: (map['activeWidgetSkin'] as String?) ?? 'default',
       );
 
   static DateTime? _parseTimestamp(dynamic value) {

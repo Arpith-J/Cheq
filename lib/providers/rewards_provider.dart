@@ -1,13 +1,17 @@
 // lib/providers/rewards_provider.dart
 
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
+import '../services/home_widget_service.dart';
 import '../theme/app_themes.dart';
+import 'planner_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Economy Constants
@@ -28,6 +32,73 @@ const String nightOwlBadge = 'Night Owl';
 const String scholarBadge = 'The Scholar';
 const String unbreakableBadge = 'Unbreakable';
 const String cleanSlateBadge = 'Clean Slate';
+
+// ---------------------------------------------------------------------------
+// Widget Skin catalog
+// ---------------------------------------------------------------------------
+
+class WidgetSkinEntry {
+  final String id;
+  final String name;
+  final String description;
+  final int cost;
+  final IconData icon;
+  final Color previewBackground;
+  final Color previewAccent;
+
+  const WidgetSkinEntry({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.cost,
+    required this.icon,
+    required this.previewBackground,
+    required this.previewAccent,
+  });
+}
+
+const WidgetSkinEntry defaultWidgetSkinEntry = WidgetSkinEntry(
+  id: 'default',
+  name: 'Default',
+  description: 'The classic dark widget panel.',
+  cost: 0,
+  icon: Icons.grid_view_rounded,
+  previewBackground: Color(0xFF101010),
+  previewAccent: Color(0xFF4caf50),
+);
+
+const WidgetSkinEntry glassWidgetSkinEntry = WidgetSkinEntry(
+  id: 'glass',
+  name: 'Glassmorphism',
+  description: 'Frosted glass with a translucent backdrop.',
+  cost: 800,
+  icon: Icons.blur_on_rounded,
+  previewBackground: Color(0x80000000),
+  previewAccent: Color(0xFFCFE3FF),
+);
+
+const WidgetSkinEntry amoledWidgetSkinEntry = WidgetSkinEntry(
+  id: 'amoled',
+  name: 'Midnight AMOLED',
+  description: 'Pure black panel for deep power-saving blacks.',
+  cost: 800,
+  icon: Icons.dark_mode_outlined,
+  previewBackground: Color(0xFF000000),
+  previewAccent: Color(0xFF66BB6A),
+);
+
+const List<WidgetSkinEntry> widgetSkinCatalog = [
+  defaultWidgetSkinEntry,
+  glassWidgetSkinEntry,
+  amoledWidgetSkinEntry,
+];
+
+WidgetSkinEntry? widgetSkinEntryById(String id) {
+  for (final entry in widgetSkinCatalog) {
+    if (entry.id == id) return entry;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Live stream of the user's economy document
@@ -63,8 +134,15 @@ class RewardsNotifier extends Notifier<UserModel> {
   @override
   UserModel build() {
     final asyncUser = ref.watch(userStreamProvider);
-    return asyncUser.value ??
+    final user = asyncUser.value ??
         const UserModel(uid: '', displayName: '', email: '');
+
+    // Keep the native widget's skin cache in sync with Firestore so the
+    // home screen widget always renders with the user's active skin.
+    if (asyncUser.value != null) {
+      HomeWidgetService.activeWidgetSkin = user.activeWidgetSkin;
+    }
+    return user;
   }
 
   /// Daily Planner task completion.
@@ -293,6 +371,77 @@ class RewardsNotifier extends Notifier<UserModel> {
       return true;
     } catch (e) {
       debugPrint('Theme equip failed: $e');
+      return false;
+    }
+  }
+
+  /// Purchases a widget skin. Atomically verifies the balance inside a
+  /// Firestore transaction so two devices can never overspend. Returns `true`
+  /// when the skin was unlocked (or already owned), `false` when
+  /// unaffordable/invalid.
+  Future<bool> purchaseWidgetSkin(String skinId, int cost) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+
+    final entry = widgetSkinEntryById(skinId);
+    if (entry == null || entry.cost <= 0) return false;
+
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    try {
+      final unlocked = await FirebaseFirestore.instance.runTransaction(
+        (tx) async {
+          final snap = await tx.get(userRef);
+          final data = snap.data();
+          if (data == null) return false;
+
+          final coins = (data['coins'] as int?) ?? 0;
+          final unlockedSkins =
+              (data['unlockedWidgetSkins'] as List<dynamic>? ?? const [])
+                  .cast<String>();
+
+          if (unlockedSkins.contains(skinId)) return true;
+          if (coins < cost) return false;
+
+          tx.update(userRef, {
+            'coins': FieldValue.increment(-cost),
+            'unlockedWidgetSkins': FieldValue.arrayUnion([skinId]),
+          });
+          return true;
+        },
+      );
+      return unlocked;
+    } catch (e) {
+      debugPrint('Widget skin purchase failed: $e');
+      return false;
+    }
+  }
+
+  /// Equips an unlocked widget skin, persisting the choice to Firestore so it
+  /// follows the user across devices, then instantly re-syncs the native home
+  /// screen widget with the new skin. No-op if the skin isn't owned.
+  Future<bool> equipWidgetSkin(String skinId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+
+    if (!state.unlockedWidgetSkins.contains(skinId)) return false;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set({'activeWidgetSkin': skinId}, SetOptions(merge: true));
+
+      // Push the new skin to the native widget immediately.
+      HomeWidgetService.activeWidgetSkin = skinId;
+      final tasks = ref.read(firestorePlannerStreamProvider).value ??
+          const <PlannerModel>[];
+      unawaited(HomeWidgetService.updateHomeScreenWidgetData(
+        tasks,
+        widgetSkin: skinId,
+      ));
+      return true;
+    } catch (e) {
+      debugPrint('Widget skin equip failed: $e');
       return false;
     }
   }
