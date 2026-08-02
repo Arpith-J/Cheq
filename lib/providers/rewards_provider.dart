@@ -503,6 +503,26 @@ class RewardsNotifier extends Notifier<UserModel> {
     }
   }
 
+  /// TEMPORARY dev cheat code — adds 99,999 coins for economy testing.
+  /// Triggered by long-pressing the balance in the Rewards Shop.
+  Future<bool> adminAddCoins() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+
+    try {
+      final userRef =
+          FirebaseFirestore.instance.collection('users').doc(uid);
+      await userRef.set(
+        {'coins': FieldValue.increment(99999)},
+        SetOptions(merge: true),
+      );
+      return true;
+    } catch (e) {
+      debugPrint('Admin add coins failed: $e');
+      return false;
+    }
+  }
+
   Future<void> _commit(String? uid, int coinDelta, List<String> badges) async {
     if (uid == null) return;
 
