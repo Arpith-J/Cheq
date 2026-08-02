@@ -60,17 +60,34 @@ class ConstellationPainter extends CustomPainter {
       colors.add(categoryColors[star.category] ?? Colors.white);
     }
 
-    // ── Constellation lines (every unique pair) ────────────────────────────
+    // ── Constellation lines (nearest neighbors, max 3 per star) ────────────
     final linePaint = Paint()
       ..color = lineColor.withValues(alpha: 0.18)
       ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke
-      // Very subtle glow so the network reads as soft webbing, not hard lines.
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+      ..style = PaintingStyle.stroke;
+
+    final drawnEdges = <String>{};
+    const maxConnections = 3;
 
     for (var i = 0; i < points.length; i++) {
-      for (var j = i + 1; j < points.length; j++) {
-        canvas.drawLine(points[i], points[j], linePaint);
+      if (points.length < 2) break;
+
+      final distances = <_StarDistance>[];
+      for (var j = 0; j < points.length; j++) {
+        if (i == j) continue;
+        final dx = points[i].dx - points[j].dx;
+        final dy = points[i].dy - points[j].dy;
+        distances.add(_StarDistance(j, dx * dx + dy * dy));
+      }
+
+      distances.sort((a, b) => a.distanceSquared.compareTo(b.distanceSquared));
+
+      for (var k = 0; k < distances.length && k < maxConnections; k++) {
+        final j = distances[k].index;
+        final key = i < j ? '${i}_$j' : '${j}_$i';
+        if (drawnEdges.add(key)) {
+          canvas.drawLine(points[i], points[j], linePaint);
+        }
       }
     }
 
@@ -112,4 +129,13 @@ class ConstellationPainter extends CustomPainter {
         oldDelegate.panOffset != panOffset ||
         oldDelegate.lineColor != lineColor;
   }
+}
+
+/// Internal bookkeeping for the nearest-neighbor pass: a target star index and
+/// the squared pixel distance to it (avoiding an extra sqrt per comparison).
+class _StarDistance {
+  _StarDistance(this.index, this.distanceSquared);
+
+  final int index;
+  final double distanceSquared;
 }
