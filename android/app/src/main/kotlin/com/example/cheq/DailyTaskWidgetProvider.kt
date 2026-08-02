@@ -76,7 +76,7 @@ class DailyTaskWidgetProvider : HomeWidgetProvider() {
         appWidgetIds: IntArray,
         widgetData: SharedPreferences
     ) {
-        val widgetSkin = widgetData.getString("widget_skin", "default")
+        val widgetSkin = widgetData.getString("widget_skin", "default") ?: "default"
 
         for (appWidgetId in appWidgetIds) {
             val views = RemoteViews(context.packageName, R.layout.widget_layout)
@@ -121,13 +121,13 @@ class DailyTaskWidgetProvider : HomeWidgetProvider() {
         when (widgetSkin) {
             "glass" -> {
                 // Frosted translucent backdrop over whatever sits behind the widget.
-                views.setInt(R.id.widget_root, "setBackgroundColor", 0x80000000)
+                views.setInt(R.id.widget_root, "setBackgroundColor", 0x80000000.toInt())
             }
             "amoled" -> {
                 // Pure black panel for deep power-saving blacks.
-                views.setInt(R.id.widget_root, "setBackgroundColor", 0xFF000000)
-                views.setTextColor(R.id.widget_title, 0xFFE0E0E0)
-                views.setTextColor(R.id.empty_view, 0xFF888888)
+                views.setInt(R.id.widget_root, "setBackgroundColor", 0xFF000000.toInt())
+                views.setTextColor(R.id.widget_title, 0xFFE0E0E0.toInt())
+                views.setTextColor(R.id.empty_view, 0xFF888888.toInt())
             }
             // "default" keeps the existing background_dark layout untouched.
         }

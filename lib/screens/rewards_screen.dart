@@ -27,6 +27,21 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
     );
   }
 
+  /// TEMPORARY dev cheat code — long-press the balance to add 99,999 coins.
+  Future<void> _adminAddCoins() async {
+    final ok = await ref.read(rewardsProvider.notifier).adminAddCoins();
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? 'Cheat Code Activated: 99,999 Coins!'
+            : 'Cheat code failed.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _buyTheme(ThemeCatalogEntry entry, int coins) async {
     if (entry.cost <= 0 || coins < entry.cost) return;
     setState(() => _busyThemeId = entry.id);
@@ -80,7 +95,10 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
           error: (e, _) => Center(child: Text('Error: $e')),
           data: (user) => Column(
             children: [
-              _CoinsBalanceHero(coins: user.coins),
+              GestureDetector(
+                onLongPress: _adminAddCoins,
+                child: _CoinsBalanceHero(coins: user.coins),
+              ),
               const TabBar(
                 labelStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),

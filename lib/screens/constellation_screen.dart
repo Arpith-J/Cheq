@@ -6,16 +6,25 @@ import '../models/user_model.dart';
 import '../providers/rewards_provider.dart';
 import '../widgets/constellation_painter.dart';
 
-/// Full-screen immersive mode for the Constellation Data Core. Uses a deep
-/// black scaffold with a safe-area close button; the interactive star field
-/// and purchase panel live in the shared [ConstellationView].
+/// Full-screen immersive mode for the Constellation Data Core. The background
+/// adapts to the active theme — deep black on dark themes, the themed surface
+/// color on light themes (e.g. Soft Paper) — so the close button, lines, and
+/// icons always stay visible.
 class ConstellationScreen extends StatelessWidget {
   const ConstellationScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final foreground = isDark ? Colors.white : cs.onSurface;
+    final buttonBackground = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.08);
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: isDark ? Colors.black : cs.surface,
       body: Stack(
         children: [
           const Positioned.fill(child: ConstellationView()),
@@ -28,10 +37,10 @@ class ConstellationScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(8),
                 child: IconButton(
                   onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.close, color: Colors.white),
+                  icon: Icon(Icons.close, color: foreground),
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.white.withValues(alpha: 0.12),
-                    foregroundColor: Colors.white,
+                    backgroundColor: buttonBackground,
+                    foregroundColor: foreground,
                   ),
                 ),
               ),
@@ -98,12 +107,21 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userStreamProvider);
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final foreground = isDark ? Colors.white : cs.onSurface;
+    final lineColor = isDark ? Colors.white : cs.onSurface;
 
     return userAsync.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: Colors.white54),
+      loading: () => Center(
+        child: CircularProgressIndicator(
+          color: cs.onSurface.withValues(alpha: 0.54),
+        ),
       ),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) => Center(
+        child: Text('Error: $e', style: TextStyle(color: cs.error)),
+      ),
       data: (user) => Stack(
         children: [
           // ── Interactive star field ─────────────────────────────────────
@@ -121,17 +139,21 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                     stars: user.constellation,
                     animationValue: _controller.value,
                     panOffset: _panOffset,
+                    lineColor: lineColor,
                   ),
                 ),
               ),
             ),
           ),
           if (user.constellation.isEmpty)
-            const Center(
+            Center(
               child: Text(
                 'Your constellation is empty.\nBuy a star below to begin.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white38, fontSize: 14),
+                style: TextStyle(
+                  color: cs.onSurface.withValues(alpha: 0.38),
+                  fontSize: 14,
+                ),
               ),
             ),
           // ── Full screen affordance ─────────────────────────────────────
@@ -141,10 +163,12 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
               right: 12,
               child: IconButton(
                 onPressed: widget.onFullScreen,
-                icon: const Icon(Icons.fullscreen, color: Colors.white),
+                icon: Icon(Icons.fullscreen, color: foreground),
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.12),
-                  foregroundColor: Colors.white,
+                  backgroundColor: isDark
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : Colors.black.withValues(alpha: 0.06),
+                  foregroundColor: foreground,
                 ),
                 tooltip: 'Full screen',
               ),
@@ -194,15 +218,27 @@ class _BuildPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final gold = const Color(0xFFFFD54F);
+    final onGold = isDark ? gold : const Color(0xFF6D4C00);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : cs.surfaceContainerHigh.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.18)
+              : cs.outlineVariant.withValues(alpha: 0.6),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
+            color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.08),
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -216,16 +252,16 @@ class _BuildPanel extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.monetization_on_rounded,
-                color: Color(0xFFFFD54F),
+                color: gold,
                 size: 22,
               ),
               const SizedBox(width: 8),
               Text(
                 '${user.coins}',
-                style: const TextStyle(
-                  color: Color(0xFFFFD54F),
+                style: TextStyle(
+                  color: onGold,
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.3,
@@ -267,7 +303,10 @@ class _StarBuyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final enabled = canAfford && !isBusy;
+
     return FilledButton.icon(
       onPressed: enabled ? onPressed : null,
       icon: Icon(
@@ -277,10 +316,16 @@ class _StarBuyButton extends StatelessWidget {
       label: Text(label),
       style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        backgroundColor: Colors.white.withValues(alpha: 0.12),
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: Colors.white.withValues(alpha: 0.06),
-        disabledForegroundColor: Colors.white.withValues(alpha: 0.35),
+        backgroundColor: isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : cs.primaryContainer.withValues(alpha: 0.8),
+        foregroundColor: isDark ? Colors.white : cs.onSurface,
+        disabledBackgroundColor: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : cs.surfaceContainerHighest,
+        disabledForegroundColor: isDark
+            ? Colors.white.withValues(alpha: 0.35)
+            : cs.onSurface.withValues(alpha: 0.35),
       ),
     );
   }
