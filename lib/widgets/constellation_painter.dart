@@ -36,7 +36,7 @@ class ConstellationPainter extends CustomPainter {
   static const double _driftAmplitude = 15.0;
 
   /// Maximum radius of a rendered star, scaled by the sparkle pulse.
-  static const double _baseRadius = 5.0;
+  static const double _baseRadius = 6.5;
 
   @override
   void paint(Canvas canvas, Size size) {

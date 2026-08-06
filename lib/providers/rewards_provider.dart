@@ -161,6 +161,8 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// and unlocks the "Night Owl" badge when the task ends at/after 10 PM.
   /// The exact reward is persisted onto the task (`coinsAwarded`) BEFORE the
   /// user's balance is updated so it can be precisely revoked on uncheck.
+  /// The task's real duration is also banked into `totalMinutesLogged` so the
+  /// lifetime "Time Logged" stat survives task deletion.
   Future<void> awardPlannerTaskCompletion(PlannerModel entry) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -177,7 +179,7 @@ class RewardsNotifier extends Notifier<UserModel> {
     await FirestoreService.instance
         .saveTask(entry.copyWith(coinsAwarded: reward, isRewarded: true));
 
-    await _commit(uid, reward, badges);
+    await _commit(uid, reward, badges, minutesDelta: _durationMinutes(entry));
   }
 
   /// Evaluates the entire day whenever a Daily Planner task is completed.
@@ -294,6 +296,7 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// Reverses a Daily Planner task reward when it is unchecked.
   /// Deducts the exact amount that was originally awarded and resets
   /// `coinsAwarded` back to 0 so a future re-check re-awards cleanly.
+  /// The task's banked minutes are also removed from `totalMinutesLogged`.
   Future<void> revokePlannerTaskCompletion(PlannerModel entry) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || entry.coinsAwarded <= 0) return;
@@ -301,7 +304,8 @@ class RewardsNotifier extends Notifier<UserModel> {
     await FirestoreService.instance
         .saveTask(entry.copyWith(coinsAwarded: 0, isRewarded: false));
 
-    await _commit(uid, -entry.coinsAwarded, const []);
+    await _commit(uid, -entry.coinsAwarded, const [],
+        minutesDelta: -_durationMinutes(entry));
   }
 
   /// Individual To-Do item completion: flat +5 coins.
@@ -367,18 +371,25 @@ class RewardsNotifier extends Notifier<UserModel> {
   }
 
   /// Equips an unlocked theme, persisting the choice to Firestore so it
-  /// follows the user across devices. No-op if the theme isn't owned.
+  /// follows the user across devices. No-op if the theme isn't owned. The
+  /// unlocked list is re-read from Firestore so a freshly purchased theme can
+  /// be equipped immediately, and the free 'default' theme always equips.
   Future<bool> equipTheme(String themeId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
 
-    if (!state.unlockedThemes.contains(themeId)) return false;
-
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .set({'activeTheme': themeId}, SetOptions(merge: true));
+      final snapshot = await userRef.get();
+      final data = snapshot.data();
+      if (data == null) return false;
+
+      final unlockedThemes =
+          (data['unlockedThemes'] as List<dynamic>? ?? const [])
+              .cast<String>();
+      if (!unlockedThemes.contains(themeId)) return false;
+
+      await userRef.set({'activeTheme': themeId}, SetOptions(merge: true));
       return true;
     } catch (e) {
       debugPrint('Theme equip failed: $e');
@@ -429,18 +440,26 @@ class RewardsNotifier extends Notifier<UserModel> {
 
   /// Equips an unlocked widget skin, persisting the choice to Firestore so it
   /// follows the user across devices, then instantly re-syncs the native home
-  /// screen widget with the new skin. No-op if the skin isn't owned.
+  /// screen widget with the new skin. No-op if the skin isn't owned. The
+  /// unlocked list is re-read from Firestore so a freshly purchased skin can be
+  /// equipped immediately, and the free 'default' skin always equips (reverting
+  /// the native widget back to its base state).
   Future<bool> equipWidgetSkin(String skinId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
 
-    if (!state.unlockedWidgetSkins.contains(skinId)) return false;
-
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .set({'activeWidgetSkin': skinId}, SetOptions(merge: true));
+      final snapshot = await userRef.get();
+      final data = snapshot.data();
+      if (data == null) return false;
+
+      final unlockedSkins =
+          (data['unlockedWidgetSkins'] as List<dynamic>? ?? const [])
+              .cast<String>();
+      if (!unlockedSkins.contains(skinId)) return false;
+
+      await userRef.set({'activeWidgetSkin': skinId}, SetOptions(merge: true));
 
       // Push the new skin to the native widget immediately.
       HomeWidgetService.activeWidgetSkin = skinId;
@@ -484,9 +503,10 @@ class RewardsNotifier extends Notifier<UserModel> {
             id: 'star_${DateTime.now().millisecondsSinceEpoch}_'
                 '${_random.nextInt(9999)}',
             category: category,
-            // Normalized coordinates within the visible canvas (0.1–0.9).
-            dx: 0.1 + _random.nextDouble() * 0.8,
-            dy: 0.1 + _random.nextDouble() * 0.8,
+            // Normalized coordinates within the visible canvas (0.15–0.85) so
+            // even edge stars never drift off-screen.
+            dx: 0.15 + _random.nextDouble() * 0.7,
+            dy: 0.15 + _random.nextDouble() * 0.7,
           );
 
           tx.update(userRef, {
@@ -503,7 +523,12 @@ class RewardsNotifier extends Notifier<UserModel> {
     }
   }
 
-  Future<void> _commit(String? uid, int coinDelta, List<String> badges) async {
+  Future<void> _commit(
+    String? uid,
+    int coinDelta,
+    List<String> badges, {
+    int minutesDelta = 0,
+  }) async {
     if (uid == null) return;
 
     try {
@@ -511,6 +536,9 @@ class RewardsNotifier extends Notifier<UserModel> {
       final updates = <String, dynamic>{
         'coins': FieldValue.increment(coinDelta),
       };
+      if (minutesDelta != 0) {
+        updates['totalMinutesLogged'] = FieldValue.increment(minutesDelta);
+      }
       for (final badge in badges) {
         updates['unlockedBadges'] = FieldValue.arrayUnion([badge]);
       }
@@ -519,6 +547,16 @@ class RewardsNotifier extends Notifier<UserModel> {
       debugPrint('Rewards commit failed: $e');
     }
   }
+}
+
+/// Returns the real duration of a planner entry in whole minutes, mirroring the
+/// UI's "runs past midnight" handling (an end time before the start time rolls
+/// into the next day).
+int _durationMinutes(PlannerModel entry) {
+  final endTime = entry.endTime.isAfter(entry.startTime)
+      ? entry.endTime
+      : entry.endTime.add(const Duration(days: 1));
+  return endTime.difference(entry.startTime).inMinutes;
 }
 
 final rewardsProvider = NotifierProvider<RewardsNotifier, UserModel>(

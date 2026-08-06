@@ -11,6 +11,8 @@ const String themeIdOledMidnight = 'oledMidnight';
 const String themeIdCyberpunk = 'cyberpunk';
 const String themeIdSoftPaper = 'softPaper';
 
+const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
+
 // ---------------------------------------------------------------------------
 // Theme definitions
 // ---------------------------------------------------------------------------
@@ -146,6 +148,7 @@ class ThemeCatalogEntry {
   final String id;
   final String name;
   final String description;
+  final String colorDescription;
   final int cost;
   final IconData icon;
   final Color previewBackground;
@@ -155,6 +158,7 @@ class ThemeCatalogEntry {
     required this.id,
     required this.name,
     required this.description,
+    required this.colorDescription,
     required this.cost,
     required this.icon,
     required this.previewBackground,
@@ -165,7 +169,9 @@ class ThemeCatalogEntry {
 const ThemeCatalogEntry defaultThemeEntry = ThemeCatalogEntry(
   id: themeIdDefault,
   name: 'Default',
-  description: 'The classic Cheq look, tuned to your accent color.',
+  description: 'The classic $appName look, tuned to your accent color.',
+  colorDescription:
+      'Clean Neutral Surfaces with Your Chosen Accent Highlights',
   cost: 0,
   icon: Icons.palette_outlined,
   previewBackground: Color(0xFFFAFAFA),
@@ -177,6 +183,7 @@ const ThemeCatalogEntry oledMidnightThemeEntry = ThemeCatalogEntry(
   name: 'OLED Midnight',
   description:
       'Pure #000000 screens and sharp, minimalist cards for deep power-saving blacks.',
+  colorDescription: 'Pure Black Background with Mint Green Accents',
   cost: 500,
   icon: Icons.dark_mode_outlined,
   previewBackground: Color(0xFF000000),
@@ -188,6 +195,7 @@ const ThemeCatalogEntry cyberpunkThemeEntry = ThemeCatalogEntry(
   name: 'Cyberpunk',
   description:
       'Neon magenta and cyan slicing through a dark synthwave night.',
+  colorDescription: 'Deep Navy Background with Neon Magenta & Cyan Accents',
   cost: 1000,
   icon: Icons.electric_bolt_outlined,
   previewBackground: Color(0xFF0D0B1E),
@@ -199,6 +207,7 @@ const ThemeCatalogEntry softPaperThemeEntry = ThemeCatalogEntry(
   name: 'Soft Paper',
   description:
       'Warm cream pages with flat, pillowy rounded cards for a calm, tactile feel.',
+  colorDescription: 'Warm Cream Paper with Soft Shadows',
   cost: 1000,
   icon: Icons.wb_sunny_outlined,
   previewBackground: Color(0xFFF4F0EB),
