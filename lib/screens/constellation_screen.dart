@@ -270,8 +270,10 @@ class _BuildPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12.0,
+            runSpacing: 8.0,
             children: [
               for (final entry in starCosts.entries)
                 _StarBuyButton(
@@ -315,7 +317,7 @@ class _StarBuyButton extends StatelessWidget {
       ),
       label: Text(label),
       style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         backgroundColor: isDark
             ? Colors.white.withValues(alpha: 0.12)
             : cs.primaryContainer.withValues(alpha: 0.8),
