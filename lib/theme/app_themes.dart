@@ -182,7 +182,7 @@ const ThemeCatalogEntry oledMidnightThemeEntry = ThemeCatalogEntry(
   id: themeIdOledMidnight,
   name: 'OLED Midnight',
   description:
-      'Pure #000000 screens and sharp, minimalist cards for deep power-saving blacks.',
+      'Pure black screens and sharp, minimalist cards for deep power-saving blacks.',
   colorDescription: 'Pure Black Background with Mint Green Accents',
   cost: 500,
   icon: Icons.dark_mode_outlined,

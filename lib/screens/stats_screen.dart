@@ -53,16 +53,13 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     return '$hours hr ${minutes}m';
   }
 
-  /// Converts the permanent 'YYYY-MM-DD' ledger keys into DateTime keys, keeping
-  /// only the entries that fall inside the selected [range] window.
+  /// Converts the permanent 'YYYY-MM-DD' ledger keys into DateTime keys,
+  /// keeping only the entries on or after [startDate] (the day the selected
+  /// timeframe window begins). The grid is then bounded by the same dates.
   static Map<DateTime, int> _filteredActivityLog(
     Map<String, int> log,
-    _StatsRange range,
+    DateTime startDate,
   ) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final cutoff = today.subtract(Duration(days: range.days - 1));
-
     final result = <DateTime, int>{};
     log.forEach((key, count) {
       if (count <= 0) return;
@@ -74,7 +71,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       if (y == null || m == null || d == null) return;
 
       final date = DateTime(y, m, d);
-      if (date.isBefore(cutoff)) return;
+      if (date.isBefore(startDate)) return;
       result[date] = count.clamp(1, 4);
     });
     return result;
@@ -110,10 +107,15 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
         .toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    // Permanent ledger: activity heatmap, filtered to the selected timeframe.
+    // Permanent ledger: activity heatmap, strictly limited to the selected
+    // timeframe window. The start date drives both the dataset filter and the
+    // rendered grid bounds so the heatmap resizes with the 1M/3M/6M/1Y filter.
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final startDate = today.subtract(Duration(days: _range.days));
     final heatmapDatasets = _filteredActivityLog(
       user?.dailyActivityLog ?? const {},
-      _range,
+      startDate,
     );
 
     final sortedDays = stats.hoursPerDayThisWeek.entries.toList()
@@ -348,6 +350,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   else
                     HeatMap(
                       datasets: heatmapDatasets,
+                      startDate: startDate,
+                      endDate: today,
                       colorMode: ColorMode.color,
                       colorsets: {
                         1: const Color(0xFF9BE9A8),
