@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/rewards_provider.dart';
 
-/// Transient "+N Coins" pill shown in the top-right corner of the main
+/// Transient "Total: N Coins" pill shown in the top-right corner of the main
 /// scaffold. It listens to the live user document and pops in whenever the coin
 /// balance grows, stays visible for 2 seconds, then fades out completely.
 class CoinFlashOverlay extends ConsumerStatefulWidget {
@@ -21,7 +21,7 @@ class _CoinFlashOverlayState extends ConsumerState<CoinFlashOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _fadeCtrl;
   Timer? _hideTimer;
-  int _flashAmount = 0;
+  int _totalCoins = 0;
 
   @override
   void initState() {
@@ -40,9 +40,9 @@ class _CoinFlashOverlayState extends ConsumerState<CoinFlashOverlay>
     super.dispose();
   }
 
-  void _flash(int delta) {
+  void _flash(int totalCoins) {
     if (!mounted) return;
-    setState(() => _flashAmount = delta);
+    setState(() => _totalCoins = totalCoins);
     _hideTimer?.cancel();
     _fadeCtrl.forward(from: 0);
     _hideTimer = Timer(const Duration(seconds: 2), () {
@@ -56,7 +56,7 @@ class _CoinFlashOverlayState extends ConsumerState<CoinFlashOverlay>
       final prevCoins = previous?.value?.coins;
       final nextCoins = next.value?.coins;
       if (prevCoins == null || nextCoins == null) return;
-      if (nextCoins > prevCoins) _flash(nextCoins - prevCoins);
+      if (nextCoins > prevCoins) _flash(nextCoins);
     });
 
     return IgnorePointer(
@@ -68,7 +68,7 @@ class _CoinFlashOverlayState extends ConsumerState<CoinFlashOverlay>
             opacity: opacity,
             child: Transform.translate(
               offset: Offset(0, (1 - opacity) * -8),
-              child: _CoinFlashPill(amount: _flashAmount),
+              child: _CoinFlashPill(totalCoins: _totalCoins),
             ),
           );
         },
@@ -78,9 +78,9 @@ class _CoinFlashOverlayState extends ConsumerState<CoinFlashOverlay>
 }
 
 class _CoinFlashPill extends StatelessWidget {
-  const _CoinFlashPill({required this.amount});
+  const _CoinFlashPill({required this.totalCoins});
 
-  final int amount;
+  final int totalCoins;
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +109,7 @@ class _CoinFlashPill extends StatelessWidget {
           Icon(Icons.monetization_on_rounded, size: 16, color: gold),
           const SizedBox(width: 6),
           Text(
-            '+$amount Coins',
+            'Total: $totalCoins Coins',
             style: TextStyle(
               color: onGold,
               fontSize: 13,

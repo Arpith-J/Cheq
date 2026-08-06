@@ -412,13 +412,26 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// Equips an unlocked theme, persisting the choice to Firestore so it
   /// follows the user across devices. No-op if the theme isn't owned. The
   /// unlocked list is re-read from Firestore so a freshly purchased theme can
-  /// be equipped immediately, and the free 'default' theme always equips.
+  /// be equipped immediately, and the free 'default' theme always equips —
+  /// clearing any premium bundle override so the app falls back to the
+  /// system-brightness theme built from the user's selected accent color.
   Future<bool> equipTheme(String themeId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
 
     final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
     try {
+      // The free 'default' theme is always owned and never requires the unlock
+      // check. Equipping it simply clears the premium override back to the
+      // stock theme resolved from the accent color + system brightness.
+      if (themeId == themeIdDefault) {
+        await userRef.set(
+          {'activeTheme': themeIdDefault},
+          SetOptions(merge: true),
+        );
+        return true;
+      }
+
       final snapshot = await userRef.get();
       final data = snapshot.data();
       if (data == null) return false;
