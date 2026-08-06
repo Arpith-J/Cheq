@@ -7,6 +7,7 @@ class UserModel {
   final String email;
   final String? photoUrl;
   final int coins;
+  final int totalMinutesLogged;
   final int streakCount;
   final DateTime? lastPerfectDay;
   final DateTime? lastCleanSlateCheck;
@@ -23,6 +24,7 @@ class UserModel {
     required this.email,
     this.photoUrl,
     this.coins = 0,
+    this.totalMinutesLogged = 0,
     this.streakCount = 0,
     this.lastPerfectDay,
     this.lastCleanSlateCheck,
@@ -40,6 +42,7 @@ class UserModel {
     String? email,
     String? photoUrl,
     int? coins,
+    int? totalMinutesLogged,
     int? streakCount,
     DateTime? lastPerfectDay,
     DateTime? lastCleanSlateCheck,
@@ -56,6 +59,7 @@ class UserModel {
       email: email ?? this.email,
       photoUrl: photoUrl ?? this.photoUrl,
       coins: coins ?? this.coins,
+      totalMinutesLogged: totalMinutesLogged ?? this.totalMinutesLogged,
       streakCount: streakCount ?? this.streakCount,
       lastPerfectDay: lastPerfectDay ?? this.lastPerfectDay,
       lastCleanSlateCheck: lastCleanSlateCheck ?? this.lastCleanSlateCheck,
@@ -74,6 +78,7 @@ class UserModel {
         'email': email,
         'photoUrl': photoUrl,
         'coins': coins,
+        'totalMinutesLogged': totalMinutesLogged,
         'streakCount': streakCount,
         'lastPerfectDay':
             lastPerfectDay != null ? Timestamp.fromDate(lastPerfectDay!) : null,
@@ -94,6 +99,7 @@ class UserModel {
         email: map['email'] as String,
         photoUrl: map['photoUrl'] as String?,
         coins: (map['coins'] as int?) ?? 0,
+        totalMinutesLogged: (map['totalMinutesLogged'] as int?) ?? 0,
         streakCount: (map['streakCount'] as int?) ?? 0,
         lastPerfectDay: _parseTimestamp(map['lastPerfectDay']),
         lastCleanSlateCheck: _parseTimestamp(map['lastCleanSlateCheck']),

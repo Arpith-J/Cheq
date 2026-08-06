@@ -8,6 +8,7 @@ import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'rewards_screen.dart';
 import '../widgets/app_side_drawer.dart';
+import '../widgets/coin_flash_overlay.dart';
 
 // ---------------------------------------------------------------------------
 // MainScaffold
@@ -129,9 +130,19 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
       ),
 
       // ── Body — IndexedStack preserves scroll state per tab ──────────────
-      body: IndexedStack(
-        index:    _selectedIndex,
-        children: _screens,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index:    _selectedIndex,
+            children: _screens,
+          ),
+          // Transient "+N Coins" flash in the top-right corner.
+          const Positioned(
+            top: 8,
+            right: 12,
+            child: CoinFlashOverlay(),
+          ),
+        ],
       ),
 
       // ── Bottom Navigation Bar (Material 3) ──────────────────────────────

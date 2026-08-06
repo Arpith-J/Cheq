@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/rewards_provider.dart';
 import '../theme/app_themes.dart';
 import 'constellation_screen.dart';
+import 'theme_preview_screen.dart';
 
 // ---------------------------------------------------------------------------
 // RewardsScreen — The Rewards Shop (Phase 3)
@@ -27,24 +28,9 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
     );
   }
 
-  Future<void> _buyTheme(ThemeCatalogEntry entry, int coins) async {
-    if (entry.cost <= 0 || coins < entry.cost) return;
-    setState(() => _busyThemeId = entry.id);
-
-    final ok = await ref
-        .read(rewardsProvider.notifier)
-        .purchaseTheme(entry.id, entry.cost);
-
-    if (!mounted) return;
-    setState(() => _busyThemeId = null);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok
-            ? '${entry.name} unlocked! Find it in Settings to equip, or tap Equip here.'
-            : 'Not enough coins for ${entry.name}.'),
-        behavior: SnackBarBehavior.floating,
-      ),
+  void _openPreview(ThemeCatalogEntry entry) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ThemePreviewScreen(entry: entry)),
     );
   }
 
@@ -97,7 +83,7 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
                       activeTheme: user.activeTheme,
                       coins: user.coins,
                       busyThemeId: _busyThemeId,
-                      onBuy: _buyTheme,
+                      onPreview: _openPreview,
                       onEquip: _equipTheme,
                     ),
                     ConstellationView(onFullScreen: _openFullScreen),
@@ -208,7 +194,7 @@ class _BundlesGrid extends StatelessWidget {
     required this.activeTheme,
     required this.coins,
     required this.busyThemeId,
-    required this.onBuy,
+    required this.onPreview,
     required this.onEquip,
   });
 
@@ -216,7 +202,7 @@ class _BundlesGrid extends StatelessWidget {
   final String activeTheme;
   final int coins;
   final String? busyThemeId;
-  final void Function(ThemeCatalogEntry entry, int coins) onBuy;
+  final void Function(ThemeCatalogEntry entry) onPreview;
   final void Function(ThemeCatalogEntry entry) onEquip;
 
   @override
@@ -248,7 +234,7 @@ class _BundlesGrid extends StatelessWidget {
           isActive: isActive,
           canAfford: canAfford,
           isBusy: isBusy,
-          onBuy: () => onBuy(entry, coins),
+          onPreview: () => onPreview(entry),
           onEquip: () => onEquip(entry),
         );
       },
@@ -272,7 +258,7 @@ class _ShopCard extends StatelessWidget {
     required this.isActive,
     required this.canAfford,
     required this.isBusy,
-    required this.onBuy,
+    required this.onPreview,
     required this.onEquip,
   });
 
@@ -286,7 +272,7 @@ class _ShopCard extends StatelessWidget {
   final bool isActive;
   final bool canAfford;
   final bool isBusy;
-  final VoidCallback onBuy;
+  final VoidCallback onPreview;
   final VoidCallback onEquip;
 
   @override
@@ -306,71 +292,74 @@ class _ShopCard extends StatelessWidget {
         ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Preview swatch ────────────────────────────────────────────────
-          Expanded(
-            child: Container(
-              color: previewBackground,
-              child: Stack(
-                children: [
-                  Center(
-                    child: Icon(
-                      icon,
-                      size: 42,
-                      color: previewAccent,
-                    ),
-                  ),
-                  if (isActive)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: cs.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.check_rounded,
-                            size: 14, color: Colors.white),
+      child: InkWell(
+        onTap: onPreview,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Preview swatch ────────────────────────────────────────────
+            Expanded(
+              child: Container(
+                color: previewBackground,
+                child: Stack(
+                  children: [
+                    Center(
+                      child: Icon(
+                        icon,
+                        size: 42,
+                        color: previewAccent,
                       ),
                     ),
+                    if (isActive)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.check_rounded,
+                              size: 14, color: Colors.white),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurface.withValues(alpha: 0.55),
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildAction(context),
                 ],
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: cs.onSurface.withValues(alpha: 0.55),
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                _buildAction(context),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -389,7 +378,9 @@ class _ShopCard extends StatelessWidget {
       );
     }
 
-    if (isUnlocked) {
+    // The free 'default' item is always owned and can never be purchased, so
+    // it is treated purely as an equip/equipped target — never "Buy for 0".
+    if (isUnlocked || cost <= 0) {
       return FilledButton.icon(
         onPressed: isBusy ? null : onEquip,
         icon: const Icon(Icons.palette_outlined, size: 16),
@@ -402,14 +393,12 @@ class _ShopCard extends StatelessWidget {
 
     final canAfford = this.canAfford;
     return FilledButton.icon(
-      onPressed: (canAfford && !isBusy) ? onBuy : null,
+      onPressed: isBusy ? null : onPreview,
       icon: Icon(
-        canAfford ? Icons.shopping_bag_outlined : Icons.lock_outline,
+        canAfford ? Icons.visibility_outlined : Icons.lock_outline,
         size: 16,
       ),
-      label: Text(
-        isBusy ? 'Buying…' : 'Buy for $cost coins',
-      ),
+      label: Text(isBusy ? 'Previewing…' : 'Preview'),
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(36),
         backgroundColor: cs.primaryContainer,

@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_heatmap_calendar/flutter_heatmap_calendar.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/rewards_provider.dart';
 import '../providers/stats_provider.dart';
 
 class StatsScreen extends ConsumerStatefulWidget {
@@ -54,7 +55,12 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   @override
   Widget build(BuildContext context) {
     final stats = ref.watch(statsProvider);
+    final userAsync = ref.watch(userStreamProvider);
     final cs = Theme.of(context).colorScheme;
+
+    // Lifetime minutes are banked on the user doc in Firestore so the stat is
+    // immune to tasks being deleted after they're checked off.
+    final totalMinutesLogged = userAsync.value?.totalMinutesLogged ?? 0;
 
     final sortedDays = stats.hoursPerDayThisWeek.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -86,7 +92,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _formatHours(stats.totalHoursAllTime),
+                    _formatHours(totalMinutesLogged / 60.0),
                     style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: cs.primary,
