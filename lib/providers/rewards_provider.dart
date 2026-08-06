@@ -161,8 +161,9 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// and unlocks the "Night Owl" badge when the task ends at/after 10 PM.
   /// The exact reward is persisted onto the task (`coinsAwarded`) BEFORE the
   /// user's balance is updated so it can be precisely revoked on uncheck.
-  /// The task's real duration is also banked into `totalMinutesLogged` so the
-  /// lifetime "Time Logged" stat survives task deletion.
+  /// The task's real duration is banked into `totalMinutesLogged` and the
+  /// permanent stats ledger (`categoryMinutes` + `dailyActivityLog`) so the
+  /// lifetime stats survive task deletion.
   Future<void> awardPlannerTaskCompletion(PlannerModel entry) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -176,10 +177,21 @@ class RewardsNotifier extends Notifier<UserModel> {
       if (entry.endTime.hour >= 22) nightOwlBadge,
     ];
 
+    final minutes = _durationMinutes(entry);
+    final category = entry.categoryName ?? 'Uncategorized';
+    final today = _dateKey(DateTime.now());
+
     await FirestoreService.instance
         .saveTask(entry.copyWith(coinsAwarded: reward, isRewarded: true));
 
-    await _commit(uid, reward, badges, minutesDelta: _durationMinutes(entry));
+    await _commit(
+      uid,
+      reward,
+      badges,
+      minutesDelta: minutes,
+      categoryMinuteDeltas: {category: minutes},
+      dailyActivityDeltas: {today: 1},
+    );
   }
 
   /// Evaluates the entire day whenever a Daily Planner task is completed.
@@ -296,21 +308,40 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// Reverses a Daily Planner task reward when it is unchecked.
   /// Deducts the exact amount that was originally awarded and resets
   /// `coinsAwarded` back to 0 so a future re-check re-awards cleanly.
-  /// The task's banked minutes are also removed from `totalMinutesLogged`.
+  /// The banked minutes, category minutes, and daily activity count are also
+  /// reversed to prevent stat farming.
   Future<void> revokePlannerTaskCompletion(PlannerModel entry) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || entry.coinsAwarded <= 0) return;
 
+    final minutes = _durationMinutes(entry);
+    final category = entry.categoryName ?? 'Uncategorized';
+    final today = _dateKey(DateTime.now());
+
     await FirestoreService.instance
         .saveTask(entry.copyWith(coinsAwarded: 0, isRewarded: false));
 
-    await _commit(uid, -entry.coinsAwarded, const [],
-        minutesDelta: -_durationMinutes(entry));
+    await _commit(
+      uid,
+      -entry.coinsAwarded,
+      const [],
+      minutesDelta: -minutes,
+      categoryMinuteDeltas: {category: -minutes},
+      dailyActivityDeltas: {today: -1},
+    );
   }
 
-  /// Individual To-Do item completion: flat +5 coins.
-  Future<void> awardTodoCompletion() =>
-      _commit(FirebaseAuth.instance.currentUser?.uid, todoItemCoins, const []);
+  /// Individual To-Do item completion: flat +5 coins and +1 to the daily
+  /// activity ledger (todo items have no category or duration).
+  Future<void> awardTodoCompletion() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return _commit(
+      uid,
+      todoItemCoins,
+      const [],
+      dailyActivityDeltas: {_dateKey(DateTime.now()): 1},
+    );
+  }
 
   /// Completing an entire To-Do list: flat +10 coins.
   Future<void> awardTodoListCompletion() => _commit(
@@ -319,9 +350,17 @@ class RewardsNotifier extends Notifier<UserModel> {
         const [],
       );
 
-  /// Reverses an individual To-Do item reward when it is unchecked.
-  Future<void> deductTodoCompletion() =>
-      _commit(FirebaseAuth.instance.currentUser?.uid, -todoItemCoins, const []);
+  /// Reverses an individual To-Do item reward when it is unchecked, removing
+  /// its daily activity entry too.
+  Future<void> deductTodoCompletion() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return _commit(
+      uid,
+      -todoItemCoins,
+      const [],
+      dailyActivityDeltas: {_dateKey(DateTime.now()): -1},
+    );
+  }
 
   /// Reverses the To-Do list completion bonus when a completed list is reopened.
   Future<void> deductTodoListCompletion() => _commit(
@@ -528,6 +567,8 @@ class RewardsNotifier extends Notifier<UserModel> {
     int coinDelta,
     List<String> badges, {
     int minutesDelta = 0,
+    Map<String, int> categoryMinuteDeltas = const {},
+    Map<String, int> dailyActivityDeltas = const {},
   }) async {
     if (uid == null) return;
 
@@ -539,10 +580,20 @@ class RewardsNotifier extends Notifier<UserModel> {
       if (minutesDelta != 0) {
         updates['totalMinutesLogged'] = FieldValue.increment(minutesDelta);
       }
+      // Nested ledger paths are incremented atomically via dot-notation so the
+      // permanent stats never need a read-modify-write round trip.
+      for (final entry in categoryMinuteDeltas.entries) {
+        updates['categoryMinutes.${entry.key}'] =
+            FieldValue.increment(entry.value);
+      }
+      for (final entry in dailyActivityDeltas.entries) {
+        updates['dailyActivityLog.${entry.key}'] =
+            FieldValue.increment(entry.value);
+      }
       for (final badge in badges) {
         updates['unlockedBadges'] = FieldValue.arrayUnion([badge]);
       }
-      await userRef.set(updates, SetOptions(merge: true));
+      await userRef.update(updates);
     } catch (e) {
       debugPrint('Rewards commit failed: $e');
     }
@@ -557,6 +608,14 @@ int _durationMinutes(PlannerModel entry) {
       ? entry.endTime
       : entry.endTime.add(const Duration(days: 1));
   return endTime.difference(entry.startTime).inMinutes;
+}
+
+/// Formats a date as a 'YYYY-MM-DD' string for the `dailyActivityLog` ledger.
+String _dateKey(DateTime date) {
+  final y = date.year.toString().padLeft(4, '0');
+  final m = date.month.toString().padLeft(2, '0');
+  final d = date.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
 }
 
 final rewardsProvider = NotifierProvider<RewardsNotifier, UserModel>(

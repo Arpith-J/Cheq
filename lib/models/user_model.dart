@@ -18,6 +18,14 @@ class UserModel {
   final String activeWidgetSkin;
   final List<StarModel> constellation;
 
+  /// Total minutes spent per task category, banked forever so deleting old
+  /// tasks never wipes long-term stats. Keyed by category name.
+  final Map<String, int> categoryMinutes;
+
+  /// Total tasks completed per day, banked forever. Keyed by a 'YYYY-MM-DD'
+  /// string so deleting old tasks never wipes the activity heatmap.
+  final Map<String, int> dailyActivityLog;
+
   const UserModel({
     required this.uid,
     required this.displayName,
@@ -34,6 +42,8 @@ class UserModel {
     this.unlockedWidgetSkins = const ['default'],
     this.activeWidgetSkin = 'default',
     this.constellation = const [],
+    this.categoryMinutes = const {},
+    this.dailyActivityLog = const {},
   });
 
   UserModel copyWith({
@@ -52,6 +62,8 @@ class UserModel {
     List<String>? unlockedWidgetSkins,
     String? activeWidgetSkin,
     List<StarModel>? constellation,
+    Map<String, int>? categoryMinutes,
+    Map<String, int>? dailyActivityLog,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -69,6 +81,8 @@ class UserModel {
       unlockedWidgetSkins: unlockedWidgetSkins ?? this.unlockedWidgetSkins,
       activeWidgetSkin: activeWidgetSkin ?? this.activeWidgetSkin,
       constellation: constellation ?? this.constellation,
+      categoryMinutes: categoryMinutes ?? this.categoryMinutes,
+      dailyActivityLog: dailyActivityLog ?? this.dailyActivityLog,
     );
   }
 
@@ -91,6 +105,8 @@ class UserModel {
         'unlockedWidgetSkins': unlockedWidgetSkins,
         'activeWidgetSkin': activeWidgetSkin,
         'constellation': constellation.map((s) => s.toMap()).toList(),
+        'categoryMinutes': categoryMinutes,
+        'dailyActivityLog': dailyActivityLog,
       };
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -116,7 +132,18 @@ class UserModel {
         constellation: (map['constellation'] as List<dynamic>? ?? const [])
             .map((e) => StarModel.fromMap(Map<String, dynamic>.from(e as Map)))
             .toList(),
+        categoryMinutes: _parseIntMap(map['categoryMinutes']),
+        dailyActivityLog: _parseIntMap(map['dailyActivityLog']),
       );
+
+  static Map<String, int> _parseIntMap(dynamic value) {
+    if (value is Map) {
+      return value.map(
+        (key, v) => MapEntry(key.toString(), (v as num).toInt()),
+      );
+    }
+    return const {};
+  }
 
   static DateTime? _parseTimestamp(dynamic value) {
     if (value == null) return null;

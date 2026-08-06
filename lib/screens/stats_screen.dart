@@ -6,6 +6,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/rewards_provider.dart';
 import '../providers/stats_provider.dart';
 
+/// Timeframe window for the activity heatmap, with its day span.
+enum _StatsRange {
+  month(30),
+  threeMonths(90),
+  sixMonths(180),
+  year(365);
+
+  const _StatsRange(this.days);
+
+  final int days;
+}
+
 class StatsScreen extends ConsumerStatefulWidget {
   const StatsScreen({super.key});
 
@@ -30,6 +42,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   ];
 
   int _touchedPieIndex = -1;
+  _StatsRange _range = _StatsRange.month;
 
   static String _formatHours(double totalHours) {
     final totalMinutes = (totalHours * 60).round();
@@ -38,6 +51,33 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     if (hours == 0) return '${minutes}m';
     if (minutes == 0) return '$hours hr';
     return '$hours hr ${minutes}m';
+  }
+
+  /// Converts the permanent 'YYYY-MM-DD' ledger keys into DateTime keys, keeping
+  /// only the entries that fall inside the selected [range] window.
+  static Map<DateTime, int> _filteredActivityLog(
+    Map<String, int> log,
+    _StatsRange range,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final cutoff = today.subtract(Duration(days: range.days - 1));
+
+    final result = <DateTime, int>{};
+    log.forEach((key, count) {
+      if (count <= 0) return;
+      final parts = key.split('-');
+      if (parts.length != 3) return;
+      final y = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      final d = int.tryParse(parts[2]);
+      if (y == null || m == null || d == null) return;
+
+      final date = DateTime(y, m, d);
+      if (date.isBefore(cutoff)) return;
+      result[date] = count.clamp(1, 4);
+    });
+    return result;
   }
 
   void _onPieTouch(FlTouchEvent event, PieTouchResponse? response) {
@@ -58,15 +98,26 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     final userAsync = ref.watch(userStreamProvider);
     final cs = Theme.of(context).colorScheme;
 
+    final user = userAsync.value;
     // Lifetime minutes are banked on the user doc in Firestore so the stat is
     // immune to tasks being deleted after they're checked off.
-    final totalMinutesLogged = userAsync.value?.totalMinutesLogged ?? 0;
+    final totalMinutesLogged = user?.totalMinutesLogged ?? 0;
+
+    // Permanent ledger: category minutes survive task deletion.
+    final sortedCategories = (user?.categoryMinutes ?? const <String, int>{})
+        .entries
+        .map((e) => MapEntry(e.key, e.value / 60.0))
+        .toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    // Permanent ledger: activity heatmap, filtered to the selected timeframe.
+    final heatmapDatasets = _filteredActivityLog(
+      user?.dailyActivityLog ?? const {},
+      _range,
+    );
 
     final sortedDays = stats.hoursPerDayThisWeek.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
-
-    final sortedCategories = stats.hoursByCategory.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
 
     double maxY = 1.0;
     if (sortedDays.isNotEmpty) {
@@ -257,8 +308,35 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: stats.heatmapDatasets.isEmpty
-                  ? Center(
+              child: Column(
+                children: [
+                  SegmentedButton<_StatsRange>(
+                    segments: const [
+                      ButtonSegment(
+                        value: _StatsRange.month,
+                        label: Text('1 Month'),
+                      ),
+                      ButtonSegment(
+                        value: _StatsRange.threeMonths,
+                        label: Text('3 Months'),
+                      ),
+                      ButtonSegment(
+                        value: _StatsRange.sixMonths,
+                        label: Text('6 Months'),
+                      ),
+                      ButtonSegment(
+                        value: _StatsRange.year,
+                        label: Text('1 Year'),
+                      ),
+                    ],
+                    selected: {_range},
+                    onSelectionChanged: (selection) =>
+                        setState(() => _range = selection.first),
+                    showSelectedIcon: false,
+                  ),
+                  const SizedBox(height: 16),
+                  if (heatmapDatasets.isEmpty)
+                    Center(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 24),
                         child: Text(
@@ -267,8 +345,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                         ),
                       ),
                     )
-                  : HeatMap(
-                      datasets: stats.heatmapDatasets,
+                  else
+                    HeatMap(
+                      datasets: heatmapDatasets,
                       colorMode: ColorMode.color,
                       colorsets: {
                         1: const Color(0xFF9BE9A8),
@@ -284,6 +363,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                       size: 18,
                       borderRadius: 4,
                     ),
+                ],
+              ),
             ),
           ),
         ],
