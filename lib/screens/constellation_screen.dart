@@ -71,6 +71,7 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
   late final AnimationController _controller;
   Offset _panOffset = Offset.zero;
   bool _isBuying = false;
+  bool _panelExpanded = false;
 
   @override
   void initState() {
@@ -156,6 +157,20 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                 ),
               ),
             ),
+          // ── Compact balance pill (full-screen mode only) ───────────────
+          // The embedded shop tab already shows its own balance chip in the
+          // header, so only the immersive full-screen view gets a pill here.
+          if (widget.onFullScreen == null)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Center(
+                  child: _BalancePill(coins: user.coins),
+                ),
+              ),
+            ),
           // ── Full screen affordance ─────────────────────────────────────
           if (widget.onFullScreen != null)
             Positioned(
@@ -173,15 +188,55 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                 tooltip: 'Full screen',
               ),
             ),
-          // ── Glassmorphism purchase panel ───────────────────────────────
+          // ── Collapsible glassmorphism purchase panel ──────────────────
           Positioned(
             left: 16,
             right: 16,
-            bottom: 28,
-            child: _BuildPanel(
-              user: user,
-              isBuying: _isBuying,
-              onBuyStar: _buyStar,
+            bottom: 24,
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                // Expanded glass panel
+                AnimatedSlide(
+                  offset: _panelExpanded
+                      ? Offset.zero
+                      : const Offset(0, 1.5),
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeInOutCubic,
+                  child: AnimatedOpacity(
+                    opacity: _panelExpanded ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    child: IgnorePointer(
+                      ignoring: !_panelExpanded,
+                      child: _BuildPanel(
+                        user: user,
+                        isBuying: _isBuying,
+                        onBuyStar: _buyStar,
+                        onCollapse: () =>
+                            setState(() => _panelExpanded = false),
+                      ),
+                    ),
+                  ),
+                ),
+                // Collapsed floating pill (default)
+                AnimatedSlide(
+                  offset: _panelExpanded
+                      ? const Offset(0, 1.5)
+                      : Offset.zero,
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeInOutCubic,
+                  child: AnimatedOpacity(
+                    opacity: _panelExpanded ? 0 : 1,
+                    duration: const Duration(milliseconds: 220),
+                    child: IgnorePointer(
+                      ignoring: _panelExpanded,
+                      child: _BuyPill(
+                        onTap: () => setState(() => _panelExpanded = true),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -199,11 +254,13 @@ class _BuildPanel extends StatelessWidget {
     required this.user,
     required this.isBuying,
     required this.onBuyStar,
+    required this.onCollapse,
   });
 
   final UserModel user;
   final bool isBuying;
   final void Function(String category) onBuyStar;
+  final VoidCallback onCollapse;
 
   String _labelFor(String category) {
     switch (category) {
@@ -221,11 +278,10 @@ class _BuildPanel extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final gold = const Color(0xFFFFD54F);
-    final onGold = isDark ? gold : const Color(0xFF6D4C00);
+    final foreground = isDark ? Colors.white : cs.onSurface;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      padding: const EdgeInsets.fromLTRB(16, 6, 12, 14),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withValues(alpha: 0.06)
@@ -248,41 +304,56 @@ class _BuildPanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Coin balance
+          // Header with collapse affordance
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.monetization_on_rounded,
-                color: gold,
-                size: 22,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${user.coins}',
-                style: TextStyle(
-                  color: onGold,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.3,
+              Expanded(
+                child: Text(
+                  'Buy Stars',
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
+              ),
+              IconButton(
+                onPressed: onCollapse,
+                tooltip: 'Collapse',
+                icon: Icon(
+                  Icons.keyboard_arrow_down,
+                  color: foreground,
+                  size: 20,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: isDark
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : cs.surfaceContainerHighest,
+                  foregroundColor: foreground,
+                  padding: const EdgeInsets.all(4),
+                ),
+                visualDensity: VisualDensity.compact,
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 12.0,
-            runSpacing: 8.0,
-            children: [
-              for (final entry in starCosts.entries)
-                _StarBuyButton(
-                  label: '${_labelFor(entry.key)}: ${entry.value}',
-                  canAfford: user.coins >= entry.value,
-                  isBusy: isBuying,
-                  onPressed: () => onBuyStar(entry.key),
-                ),
-            ],
+          const SizedBox(height: 4),
+          // Horizontally scrollable star categories
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              children: [
+                for (final entry in starCosts.entries) ...[
+                  _StarBuyButton(
+                    label: '${_labelFor(entry.key)}: ${entry.value}',
+                    canAfford: user.coins >= entry.value,
+                    isBusy: isBuying,
+                    onPressed: () => onBuyStar(entry.key),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
           ),
         ],
       ),
@@ -328,6 +399,131 @@ class _StarBuyButton extends StatelessWidget {
         disabledForegroundColor: isDark
             ? Colors.white.withValues(alpha: 0.35)
             : cs.onSurface.withValues(alpha: 0.35),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Collapsed "Buy Stars" pill
+// ---------------------------------------------------------------------------
+
+class _BuyPill extends StatelessWidget {
+  const _BuyPill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final foreground = isDark ? Colors.white : cs.onSurface;
+    final background = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : cs.surfaceContainerHigh.withValues(alpha: 0.92);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.18)
+                  : cs.outlineVariant.withValues(alpha: 0.6),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.10),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.auto_awesome, color: foreground, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'Buy Stars',
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                Icons.keyboard_arrow_up_rounded,
+                color: foreground,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compact balance pill
+// ---------------------------------------------------------------------------
+
+class _BalancePill extends StatelessWidget {
+  const _BalancePill({required this.coins});
+
+  final int coins;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final onGold = isDark ? const Color(0xFFB8860B) : const Color(0xFF6D4C00);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : cs.surfaceContainerHigh.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.18)
+              : cs.outlineVariant.withValues(alpha: 0.5),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('✨', style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 6),
+          Text(
+            '$coins',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: onGold,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
       ),
     );
   }

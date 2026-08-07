@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
+import '../models/garden_plot_model.dart';
 import '../models/star_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
@@ -31,6 +32,12 @@ const Map<String, int> starCosts = {
   'focus': 75,
   'creativity': 100,
   'academic': 125,
+};
+
+/// Cost of each seed type in the Forest-style Garden.
+const Map<String, int> seedCosts = {
+  'pine': 150,
+  'oak': 300,
 };
 
 final Random _random = Random();
@@ -571,6 +578,56 @@ class RewardsNotifier extends Notifier<UserModel> {
       return purchased;
     } catch (e) {
       debugPrint('Star purchase failed: $e');
+      return false;
+    }
+  }
+
+  /// Plants a seed in the Forest-style Garden. Atomically verifies the balance
+  /// inside a Firestore transaction, deducts the exact cost, and appends a new
+  /// `GardenPlotModel` (with `DateTime.now()` as `plantedAt`) to the user's
+  /// `garden` list. A `gridIndex` already occupied by an existing plot is
+  /// rejected so plots can never be overwritten. Returns `true` when the seed
+  /// was planted, `false` when unaffordable, the plot is taken, or the type is
+  /// unknown.
+  Future<bool> plantSeed(int index, String type, int cost) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || !seedCosts.containsKey(type)) return false;
+
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    try {
+      final planted = await FirebaseFirestore.instance.runTransaction(
+        (tx) async {
+          final snap = await tx.get(userRef);
+          final data = snap.data();
+          if (data == null) return false;
+
+          final coins = (data['coins'] as int?) ?? 0;
+          final garden = (data['garden'] as List<dynamic>? ?? const [])
+              .map((e) =>
+                  GardenPlotModel.fromMap(Map<String, dynamic>.from(e as Map)))
+              .toList();
+
+          if (coins < cost) return false;
+          if (garden.any((plot) => plot.gridIndex == index)) return false;
+
+          final plot = GardenPlotModel(
+            id: 'plot_${DateTime.now().millisecondsSinceEpoch}_'
+                '${_random.nextInt(9999)}',
+            gridIndex: index,
+            seedType: type,
+            plantedAt: DateTime.now(),
+          );
+
+          tx.update(userRef, {
+            'coins': FieldValue.increment(-cost),
+            'garden': FieldValue.arrayUnion([plot.toMap()]),
+          });
+          return true;
+        },
+      );
+      return planted;
+    } catch (e) {
+      debugPrint('Seed planting failed: $e');
       return false;
     }
   }

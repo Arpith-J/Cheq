@@ -277,7 +277,7 @@ class _AppMockup extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                Icon(Icons.monetization_on_rounded, size: 18, color: accent),
+                Text('✨', style: const TextStyle(fontSize: 16)),
                 const SizedBox(width: 4),
                 Text(
                   '1,250',

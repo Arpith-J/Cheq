@@ -106,7 +106,7 @@ class _CoinFlashPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.monetization_on_rounded, size: 16, color: gold),
+          Text('✨', style: const TextStyle(fontSize: 16)),
           const SizedBox(width: 6),
           Text(
             'Total: $totalCoins Coins',

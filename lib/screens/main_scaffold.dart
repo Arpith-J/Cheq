@@ -43,9 +43,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
       activeIcon: Icons.calendar_today_rounded,
     ),
     _TabItem(
-      label:      'Rewards',
-      icon:       Icons.emoji_events_outlined,
-      activeIcon: Icons.emoji_events_rounded,
+      label:      'Garden',
+      icon:       Icons.local_florist_outlined,
+      activeIcon: Icons.local_florist_rounded,
     ),
   ];
 
@@ -119,7 +119,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
             key: ValueKey<int>(_selectedIndex),
             width: 120, // Wide enough to hold 'Planner' and 'Rewards' without wrapping
             child: Text(
-              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Rewards'),
+              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Garden'),
               style: const TextStyle(fontWeight: FontWeight.bold), 
             ),
           ),
@@ -136,12 +136,14 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
             index:    _selectedIndex,
             children: _screens,
           ),
-          // Transient "+N Coins" flash in the top-right corner.
-          const Positioned(
-            top: 8,
-            right: 12,
-            child: CoinFlashOverlay(),
-          ),
+          // Transient "+N Coins" flash in the top-right corner — visible only
+          // on the Rewards tab so coin indicators stay out of To-Do/Planner.
+          if (_selectedIndex == 2)
+            const Positioned(
+              top: 8,
+              right: 12,
+              child: CoinFlashOverlay(),
+            ),
         ],
       ),
 
