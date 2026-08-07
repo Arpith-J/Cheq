@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/star_model.dart';
 import '../models/user_model.dart';
 import '../providers/rewards_provider.dart';
 import '../widgets/constellation_painter.dart';
@@ -73,6 +74,12 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
   bool _isBuying = false;
   bool _panelExpanded = false;
 
+  /// When true, the sparkle animation is frozen so stars can be rearranged.
+  bool _isPaused = false;
+
+  /// The star currently being dragged (only meaningful while paused).
+  String? _draggedStarId;
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +94,75 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _togglePause() {
+    setState(() => _isPaused = !_isPaused);
+    if (_isPaused) {
+      _controller.stop();
+    } else {
+      _controller.repeat();
+    }
+  }
+
+  /// Returns the star whose canvas position is within ~30px of [pos], or null.
+  StarModel? _starAt(Offset pos, Size size) {
+    final stars = ref.read(rewardsProvider).constellation;
+    StarModel? nearest;
+    var bestSquared = 30.0 * 30.0;
+    for (final star in stars) {
+      final sx = star.dx * size.width;
+      final sy = star.dy * size.height;
+      final dx = pos.dx - sx;
+      final dy = pos.dy - sy;
+      final distSquared = dx * dx + dy * dy;
+      if (distSquared <= bestSquared) {
+        bestSquared = distSquared;
+        nearest = star;
+      }
+    }
+    return nearest;
+  }
+
+  void _handlePanStart(DragStartDetails details, Size size) {
+    if (!_isPaused) return;
+    setState(() {
+      _draggedStarId = _starAt(details.localPosition, size)?.id;
+    });
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details, Size size) {
+    final draggedId = _draggedStarId;
+    if (draggedId != null) {
+      // Reposition the held star to the finger, clamped to the canvas so it
+      // can never be dragged off-screen.
+      final dx =
+          (details.localPosition.dx / size.width).clamp(0.05, 0.95).toDouble();
+      final dy =
+          (details.localPosition.dy / size.height).clamp(0.05, 0.95).toDouble();
+      ref.read(rewardsProvider.notifier).previewStarMove(draggedId, dx, dy);
+    } else {
+      // No star grabbed — preserve the original pan-the-field behavior.
+      setState(() => _panOffset += details.delta);
+    }
+  }
+
+  void _handlePanEnd(DragEndDetails details) {
+    final draggedId = _draggedStarId;
+    setState(() => _draggedStarId = null);
+
+    if (draggedId == null) {
+      setState(() => _panOffset = Offset.zero);
+      return;
+    }
+
+    // Persist the dragged star's final position to Firestore.
+    final user = ref.read(rewardsProvider);
+    final idx = user.constellation.indexWhere((s) => s.id == draggedId);
+    if (idx >= 0) {
+      final star = user.constellation[idx];
+      ref.read(rewardsProvider.notifier).moveStar(star.id, star.dx, star.dy);
+    }
   }
 
   Future<void> _buyStar(String category) async {
@@ -108,6 +184,9 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userStreamProvider);
+    // Watch the NotifierProvider (not the raw stream) so optimistic star drags
+    // repaint instantly; the stream is still watched for loading/error states.
+    final user = ref.watch(rewardsProvider);
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -123,27 +202,37 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
       error: (e, _) => Center(
         child: Text('Error: $e', style: TextStyle(color: cs.error)),
       ),
-      data: (user) => Stack(
+      data: (_) => Stack(
         children: [
           // ── Interactive star field ─────────────────────────────────────
           Positioned.fill(
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                setState(() => _panOffset += details.delta);
-              },
-              onPanEnd: (_) => setState(() => _panOffset = Offset.zero),
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, _) => CustomPaint(
-                  size: Size.infinite,
-                  painter: ConstellationPainter(
-                    stars: user.constellation,
-                    animationValue: _controller.value,
-                    panOffset: _panOffset,
-                    lineColor: lineColor,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final canvasSize = Size(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (details) =>
+                      _handlePanStart(details, canvasSize),
+                  onPanUpdate: (details) =>
+                      _handlePanUpdate(details, canvasSize),
+                  onPanEnd: _handlePanEnd,
+                  child: AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, _) => CustomPaint(
+                      size: Size.infinite,
+                      painter: ConstellationPainter(
+                        stars: user.constellation,
+                        animationValue: _controller.value,
+                        panOffset: _panOffset,
+                        lineColor: lineColor,
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
           if (user.constellation.isEmpty)
@@ -188,6 +277,27 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                 tooltip: 'Full screen',
               ),
             ),
+          // ── Play / Pause ───────────────────────────────────────────────
+          Positioned(
+            top: widget.onFullScreen != null ? 64 : 12,
+            right: 12,
+            child: IconButton(
+              onPressed: _togglePause,
+              icon: Icon(
+                _isPaused
+                    ? Icons.play_arrow_rounded
+                    : Icons.pause_rounded,
+                color: foreground,
+              ),
+              style: IconButton.styleFrom(
+                backgroundColor: isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.06),
+                foregroundColor: foreground,
+              ),
+              tooltip: _isPaused ? 'Play' : 'Pause',
+            ),
+          ),
           // ── Collapsible glassmorphism purchase panel ──────────────────
           Positioned(
             left: 16,

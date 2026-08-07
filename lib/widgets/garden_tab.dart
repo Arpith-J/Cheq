@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/garden_plot_model.dart';
 import '../providers/rewards_provider.dart';
 
-/// Total number of plots in the garden grid.
+/// Total number of plots in the garden (4 seasons × 3 plots each).
 const int gardenPlotCount = 12;
 
 /// Growth threshold: under 1 day → seedling, under 3 days → sapling,
@@ -25,7 +25,70 @@ const Map<String, String> _treeEmojis = {
 };
 
 // ---------------------------------------------------------------------------
-// GardenTab — Forest-style grid of plantable plots
+// Seasonal quadrant metadata
+// ---------------------------------------------------------------------------
+
+class _SeasonSpec {
+  const _SeasonSpec({
+    required this.name,
+    required this.emoji,
+    required this.deco,
+    required this.color,
+    required this.borderColor,
+    required this.startIndex,
+  });
+
+  final String name;
+  final String emoji;
+
+  /// Decorative glyph rendered on the extra soil tile of the 2x2 grid.
+  final String deco;
+  final Color color;
+  final Color borderColor;
+
+  /// First global `gridIndex` owned by this season (3 consecutive plots).
+  final int startIndex;
+}
+
+/// Quadrant layout order: top row Spring (left) + Autumn (right),
+/// bottom row Summer (left) + Winter (right).
+const List<_SeasonSpec> _seasons = [
+  _SeasonSpec(
+    name: 'Spring',
+    emoji: '🌸',
+    deco: '🌼',
+    color: Color(0xFF81C784),
+    borderColor: Color(0xFF2E7D32),
+    startIndex: 0,
+  ),
+  _SeasonSpec(
+    name: 'Autumn',
+    emoji: '🍂',
+    deco: '🍁',
+    color: Color(0xFFE6A873),
+    borderColor: Color(0xFFB45309),
+    startIndex: 6,
+  ),
+  _SeasonSpec(
+    name: 'Summer',
+    emoji: '☀️',
+    deco: '🍉',
+    color: Color(0xFFFFB74D),
+    borderColor: Color(0xFFE65100),
+    startIndex: 3,
+  ),
+  _SeasonSpec(
+    name: 'Winter',
+    emoji: '❄️',
+    deco: '☃️',
+    color: Color(0xFF64B5F6),
+    borderColor: Color(0xFF1565C0),
+    startIndex: 9,
+  ),
+];
+
+// ---------------------------------------------------------------------------
+// GardenTab — zoomable 2x2 seasonal garden canvas
 // ---------------------------------------------------------------------------
 
 class GardenTab extends ConsumerWidget {
@@ -38,30 +101,184 @@ class GardenTab extends ConsumerWidget {
     return userAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
-      data: (user) => GridView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1,
+      data: (user) => InteractiveViewer(
+        // Infinite boundary + generous zoom range: the whole land can be
+        // panned around and scaled freely.
+        boundaryMargin: const EdgeInsets.all(double.infinity),
+        minScale: 0.5,
+        maxScale: 3.0,
+        constrained: false,
+        child: SizedBox(
+          width: 480,
+          height: 800,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── Top row: Spring | Autumn ──────────────────────────────
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _SeasonQuadrant(
+                          season: _seasons[0],
+                          garden: user.garden,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _SeasonQuadrant(
+                          season: _seasons[1],
+                          garden: user.garden,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // ── Bottom row: Summer | Winter ───────────────────────────
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _SeasonQuadrant(
+                          season: _seasons[2],
+                          garden: user.garden,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _SeasonQuadrant(
+                          season: _seasons[3],
+                          garden: user.garden,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        itemCount: gardenPlotCount,
-        itemBuilder: (context, i) {
-          return _GardenPlotTile(
-            index: i,
-            plot: _plotForIndex(user.garden, i),
-          );
-        },
       ),
     );
   }
+}
 
-  GardenPlotModel? _plotForIndex(List<GardenPlotModel> garden, int index) {
-    for (final plot in garden) {
-      if (plot.gridIndex == index) return plot;
-    }
-    return null;
+// ---------------------------------------------------------------------------
+// Single season quadrant — a fenced 2x2 plot grid
+// ---------------------------------------------------------------------------
+
+class _SeasonQuadrant extends StatelessWidget {
+  const _SeasonQuadrant({required this.season, required this.garden});
+
+  final _SeasonSpec season;
+  final List<GardenPlotModel> garden;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: season.color.withValues(alpha: isDark ? 0.20 : 0.40),
+        borderRadius: BorderRadius.circular(20),
+        // Thick stylized border doubles as the "fence" around the field.
+        border: Border.all(
+          color: season.borderColor.withValues(alpha: isDark ? 0.55 : 0.85),
+          width: 3,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        children: [
+          // Season header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(season.emoji, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 6),
+              Text(
+                season.name,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  letterSpacing: 0.4,
+                  color: season.borderColor.withValues(alpha: isDark ? 0.95 : 1),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // 2x2 plot grid — 3 owned plots + 1 seasonal decorative tile
+          Expanded(
+            child: Center(
+              child: GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 1,
+                children: [
+                  for (var local = 0; local < 3; local++)
+                    _GardenPlotTile(
+                      index: season.startIndex + local,
+                      plot: _plotForIndex(
+                        garden,
+                        season.startIndex + local,
+                      ),
+                    ),
+                  _SeasonDecorativeTile(season: season),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Seasonal decorative soil tile (fills the 4th cell of each 2x2 grid)
+// ---------------------------------------------------------------------------
+
+class _SeasonDecorativeTile extends StatelessWidget {
+  const _SeasonDecorativeTile({required this.season});
+
+  final _SeasonSpec season;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: season.color.withValues(alpha: isDark ? 0.10 : 0.18),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: season.borderColor.withValues(alpha: isDark ? 0.30 : 0.45),
+        ),
+      ),
+      child: Center(
+        child: Text(
+          season.deco,
+          style: TextStyle(
+            fontSize: 24,
+            color: season.borderColor.withValues(alpha: 0.55),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -191,4 +408,15 @@ class _EmptyPlot extends StatelessWidget {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+GardenPlotModel? _plotForIndex(List<GardenPlotModel> garden, int index) {
+  for (final plot in garden) {
+    if (plot.gridIndex == index) return plot;
+  }
+  return null;
 }
