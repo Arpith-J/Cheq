@@ -2,93 +2,60 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:weather_animation/weather_animation.dart';
 
 import '../models/garden_plot_model.dart';
 import '../providers/rewards_provider.dart';
 
-/// Total number of plots in the garden (4 seasons × 3 plots each).
-const int gardenPlotCount = 12;
+/// Total number of tiles in the sandbox biome (20 × 20).
+const int gardenPlotCount = 400;
 
-/// Growth threshold: under 1 day → seedling, under 3 days → sapling,
-/// 3+ days → full tree.
-const Duration _seedlingThreshold = Duration(days: 1);
-const Duration _saplingThreshold = Duration(days: 3);
+/// Biome grid dimensions.
+const int _gridSize = 20;
 
-const Map<String, String> _seedNames = {
-  'pine': 'Pine Seed',
-  'oak': 'Oak Seed',
+/// Full canvas size of the biome (a perfect square of square tiles).
+const double _biomeSize = 800;
+
+/// Half of the canvas — the size of a single seasonal quadrant.
+const double _quadrantSize = _biomeSize / 2;
+
+/// Growth stages: Stage 1 (0–24h) seedling, Stage 2 (1–3d) sapling,
+/// Stage 3 (3d+) mature tree.
+const Duration _stage1Threshold = Duration(days: 1);
+const Duration _stage2Threshold = Duration(days: 3);
+
+/// Seasonal tint applied to the Stage-1 seedling and Stage-2 sapling
+/// silhouettes (which ship as flat white PNGs). Keyed by lowercase `seedType`.
+const Map<String, Color> _seedSeasonalColors = {
+  'birch': Color(0xFFF48FB1), // Spring — Soft Pink
+  'oak': Color(0xFF81C784), // Summer — Vibrant Green
+  'maple': Color(0xFFFF8A65), // Autumn — Burnt Orange
+  'pine': Color(0xFF4FC3F7), // Winter — Ice Blue
 };
 
-const Map<String, String> _treeEmojis = {
-  'pine': '🌲',
-  'oak': '🌳',
-};
+/// Resolves the seasonal tint for a `seedType`, falling back to green.
+Color _seasonalColorFor(String seedType) =>
+    _seedSeasonalColors[seedType] ?? Colors.green;
 
-// ---------------------------------------------------------------------------
-// Seasonal quadrant metadata
-// ---------------------------------------------------------------------------
-
-class _SeasonSpec {
-  const _SeasonSpec({
-    required this.name,
-    required this.emoji,
-    required this.deco,
-    required this.color,
-    required this.borderColor,
-    required this.startIndex,
-  });
-
-  final String name;
-  final String emoji;
-
-  /// Decorative glyph rendered on the extra soil tile of the 2x2 grid.
-  final String deco;
-  final Color color;
-  final Color borderColor;
-
-  /// First global `gridIndex` owned by this season (3 consecutive plots).
-  final int startIndex;
+/// Base ground color for each of the 4 seasonal quadrants.
+///
+/// Top-Left Spring, Top-Right Summer, Bottom-Left Autumn, Bottom-Right Winter.
+Color _groundColorFor(int x, int y) {
+  if (x < 10 && y < 10) return const Color(0xFFAED581); // Spring
+  if (x >= 10 && y < 10) return const Color(0xFF66BB6A); // Summer
+  if (x < 10 && y >= 10) return const Color(0xFFD84315); // Autumn
+  return const Color(0xFFE0F7FA); // Winter
 }
 
-/// Quadrant layout order: top row Spring (left) + Autumn (right),
-/// bottom row Summer (left) + Winter (right).
-const List<_SeasonSpec> _seasons = [
-  _SeasonSpec(
-    name: 'Spring',
-    emoji: '🌸',
-    deco: '🌼',
-    color: Color(0xFF81C784),
-    borderColor: Color(0xFF2E7D32),
-    startIndex: 0,
-  ),
-  _SeasonSpec(
-    name: 'Autumn',
-    emoji: '🍂',
-    deco: '🍁',
-    color: Color(0xFFE6A873),
-    borderColor: Color(0xFFB45309),
-    startIndex: 6,
-  ),
-  _SeasonSpec(
-    name: 'Summer',
-    emoji: '☀️',
-    deco: '🍉',
-    color: Color(0xFFFFB74D),
-    borderColor: Color(0xFFE65100),
-    startIndex: 3,
-  ),
-  _SeasonSpec(
-    name: 'Winter',
-    emoji: '❄️',
-    deco: '☃️',
-    color: Color(0xFF64B5F6),
-    borderColor: Color(0xFF1565C0),
-    startIndex: 9,
-  ),
-];
+/// Cobblestone/dirt color for the demarcation cross.
+const Color _pathColor = Color(0xFF795548);
+
+/// True for the cobblestone path tiles that divide the 4 quadrants. Planting
+/// is disabled on these specific indices.
+bool _isPathTile(int x, int y) => x == 9 || x == 10 || y == 9 || y == 10;
 
 // ---------------------------------------------------------------------------
-// GardenTab — zoomable 2x2 seasonal garden canvas
+// GardenTab — immersive zoomable 20×20 four-season sandbox biome
 // ---------------------------------------------------------------------------
 
 class GardenTab extends ConsumerWidget {
@@ -109,173 +76,69 @@ class GardenTab extends ConsumerWidget {
         maxScale: 3.0,
         constrained: false,
         child: SizedBox(
-          width: 480,
-          height: 800,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // ── Top row: Spring | Autumn ──────────────────────────────
-                Expanded(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _SeasonQuadrant(
-                          season: _seasons[0],
-                          garden: user.garden,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _SeasonQuadrant(
-                          season: _seasons[1],
-                          garden: user.garden,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // ── Bottom row: Summer | Winter ───────────────────────────
-                Expanded(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _SeasonQuadrant(
-                          season: _seasons[2],
-                          garden: user.garden,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _SeasonQuadrant(
-                          season: _seasons[3],
-                          garden: user.garden,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Single season quadrant — a fenced 2x2 plot grid
-// ---------------------------------------------------------------------------
-
-class _SeasonQuadrant extends StatelessWidget {
-  const _SeasonQuadrant({required this.season, required this.garden});
-
-  final _SeasonSpec season;
-  final List<GardenPlotModel> garden;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: season.color.withValues(alpha: isDark ? 0.20 : 0.40),
-        borderRadius: BorderRadius.circular(20),
-        // Thick stylized border doubles as the "fence" around the field.
-        border: Border.all(
-          color: season.borderColor.withValues(alpha: isDark ? 0.55 : 0.85),
-          width: 3,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        children: [
-          // Season header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          width: _biomeSize,
+          height: _biomeSize,
+          child: Stack(
             children: [
-              Text(season.emoji, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 6),
-              Text(
-                season.name,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                  letterSpacing: 0.4,
-                  color: season.borderColor.withValues(alpha: isDark ? 0.95 : 1),
+              // ── 20×20 biome grid ────────────────────────────────────────
+              Positioned.fill(
+                child: GridView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: _gridSize,
+                    childAspectRatio: 1.0,
+                  ),
+                  itemCount: gardenPlotCount,
+                  itemBuilder: (context, index) =>
+                      _BiomeTile(index: index, garden: user.garden),
+                ),
+              ),
+
+              // ── Winter: falling snow over the bottom-right quadrant ──────
+              Positioned(
+                left: _quadrantSize,
+                top: _quadrantSize,
+                width: _quadrantSize,
+                height: _quadrantSize,
+                child: IgnorePointer(
+                  child: ClipRect(
+                    child: SnowWidget(
+                      snowConfig: const SnowConfig(
+                        count: 30,
+                        size: 16,
+                        areaXStart: 0,
+                        areaXEnd: _quadrantSize - 24,
+                        areaYStart: 0,
+                        areaYEnd: _quadrantSize - 24,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Spring: drifting petals/leaves over the top-left quadrant ─
+              Positioned(
+                left: 0,
+                top: 0,
+                width: _quadrantSize,
+                height: _quadrantSize,
+                child: IgnorePointer(
+                  child: ClipRect(
+                    child: WindWidget(
+                      windConfig: const WindConfig(
+                        color: Color(0xFFF48FB1),
+                        width: 5,
+                        y: _quadrantSize / 2,
+                        windGap: 18,
+                        slideXEnd: _quadrantSize - 20,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          // 2x2 plot grid — 3 owned plots + 1 seasonal decorative tile
-          Expanded(
-            child: Center(
-              child: GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 1,
-                children: [
-                  for (var local = 0; local < 3; local++)
-                    _GardenPlotTile(
-                      index: season.startIndex + local,
-                      plot: _plotForIndex(
-                        garden,
-                        season.startIndex + local,
-                      ),
-                    ),
-                  _SeasonDecorativeTile(season: season),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Seasonal decorative soil tile (fills the 4th cell of each 2x2 grid)
-// ---------------------------------------------------------------------------
-
-class _SeasonDecorativeTile extends StatelessWidget {
-  const _SeasonDecorativeTile({required this.season});
-
-  final _SeasonSpec season;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: season.color.withValues(alpha: isDark ? 0.10 : 0.18),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: season.borderColor.withValues(alpha: isDark ? 0.30 : 0.45),
-        ),
-      ),
-      child: Center(
-        child: Text(
-          season.deco,
-          style: TextStyle(
-            fontSize: 24,
-            color: season.borderColor.withValues(alpha: 0.55),
-          ),
         ),
       ),
     );
@@ -283,48 +146,73 @@ class _SeasonDecorativeTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Single plot — dirt when empty, growing plant when planted
+// Single biome tile — base ground color + optional planted growth
 // ---------------------------------------------------------------------------
 
-class _GardenPlotTile extends ConsumerWidget {
-  const _GardenPlotTile({required this.index, required this.plot});
+class _BiomeTile extends ConsumerWidget {
+  const _BiomeTile({required this.index, required this.garden});
 
   final int index;
-  final GardenPlotModel? plot;
+  final List<GardenPlotModel> garden;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final plot = this.plot;
+    final x = index % _gridSize;
+    final y = index ~/ _gridSize;
 
-    if (plot == null) {
-      return _EmptyPlot(onTap: () => _showSeedPicker(context, ref));
-    }
+    final onPath = _isPathTile(x, y);
+    final plot = _plotForIndex(garden, index);
+    final groundColor = onPath ? _pathColor : _groundColorFor(x, y);
 
-    final (emoji, size) = _growthIcon(plot);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF3A7D44).withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFF2E6B37).withValues(alpha: 0.5),
+    return GestureDetector(
+      onTap: plot == null && !onPath
+          ? () => _showSeedPicker(context, ref)
+          : null,
+      child: Container(
+        decoration: BoxDecoration(
+          color: groundColor,
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
         ),
-      ),
-      child: Center(
-        child: Text(emoji, style: TextStyle(fontSize: size)),
+        child: plot == null
+            ? _EmptyPlot(showHint: !onPath)
+            : Center(child: _growthWidget(plot)),
       ),
     );
   }
 
-  /// Returns the emoji + font size for a plot's current growth stage.
-  (String, double) _growthIcon(GardenPlotModel plot) {
+  /// Renders the correct 3-stage growth visual for a planted plot:
+  /// - Stage 1 (0–24h):   white seedling PNG tinted with the seasonal color
+  /// - Stage 2 (1–3 days): white sapling PNG tinted with the seasonal color
+  /// - Stage 3 (3+ days):  the mature seasonal tree for this `seedType`,
+  ///   drawn full-color from `assets/images/<seedType>.png`.
+  Widget _growthWidget(GardenPlotModel plot) {
     final age = DateTime.now().difference(plot.plantedAt);
-    if (age < _seedlingThreshold) return ('🌱', 20);
-    if (age < _saplingThreshold) return ('🌿', 26);
-    return (_treeEmojis[plot.seedType] ?? '🌳', 34);
+    final seasonalColor = _seasonalColorFor(plot.seedType);
+    if (age < _stage1Threshold) {
+      return Image.asset(
+        'assets/images/seedling.png',
+        color: seasonalColor,
+        fit: BoxFit.contain,
+      );
+    }
+    if (age < _stage2Threshold) {
+      return Image.asset(
+        'assets/images/sapling.png',
+        color: seasonalColor,
+        fit: BoxFit.contain,
+      );
+    }
+    return Image.asset(
+      'assets/images/${plot.seedType}.png',
+      fit: BoxFit.contain,
+      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+    );
   }
 
   void _showSeedPicker(BuildContext context, WidgetRef ref) {
+    final coins = ref.read(rewardsProvider).coins;
+    final cs = Theme.of(context).colorScheme;
+
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -336,36 +224,61 @@ class _GardenPlotTile extends ConsumerWidget {
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 4),
                 child: Text(
-                  'Plant a Seed',
+                  'Seed Shop',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ),
-              for (final entry in seedCosts.entries) ...[
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Plant a seasonal tree seed.',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ),
+              for (final entry in seedCatalog) ...[
                 ListTile(
-                  leading: Text(
-                    _treeEmojis[entry.key] ?? '🌱',
-                    style: const TextStyle(fontSize: 22),
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      entry.seasonEmoji,
+                      style: const TextStyle(fontSize: 22),
+                    ),
                   ),
                   title: Text(
-                    _seedNames[entry.key] ?? entry.key,
+                    entry.name,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  subtitle: Text('${entry.value} ✨'),
+                  subtitle: Text(entry.season),
+                  trailing: Text(
+                    '${entry.cost} ✨',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: coins >= entry.cost ? cs.primary : cs.error,
+                    ),
+                  ),
                   onTap: () async {
                     Navigator.of(sheetContext).pop();
                     final ok = await ref
                         .read(rewardsProvider.notifier)
-                        .plantSeed(index, entry.key, entry.value);
+                        .plantSeed(index, entry.type);
                     if (!context.mounted) return;
-                    if (!ok) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                              'Not enough coins to plant that seed.'),
-                          behavior: SnackBarBehavior.floating,
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok
+                              ? '${entry.name} planted! 🌱'
+                              : 'Not enough ✨ to buy that seed.',
                         ),
-                      );
-                    }
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
                   },
                 ),
               ],
@@ -378,34 +291,24 @@ class _GardenPlotTile extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Empty brown dirt plot
+// Empty ground tile (subtle planting hint)
 // ---------------------------------------------------------------------------
 
 class _EmptyPlot extends StatelessWidget {
-  const _EmptyPlot({required this.onTap});
+  const _EmptyPlot({required this.showHint});
 
-  final VoidCallback onTap;
+  final bool showHint;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF8B5A2B),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: const Color(0xFF5D452A).withValues(alpha: 0.6),
-            ),
-          ),
-          child: const Center(
-            child: Icon(Icons.add, size: 26, color: Color(0x66FFFFFF)),
-          ),
-        ),
-      ),
+    return Center(
+      child: showHint
+          ? Icon(
+              Icons.add,
+              size: 16,
+              color: Colors.white.withValues(alpha: 0.40),
+            )
+          : null,
     );
   }
 }
