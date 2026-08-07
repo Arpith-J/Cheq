@@ -34,11 +34,64 @@ const Map<String, int> starCosts = {
   'academic': 125,
 };
 
-/// Cost of each seed type in the Forest-style Garden.
-const Map<String, int> seedCosts = {
-  'pine': 150,
-  'oak': 300,
-};
+/// A purchasable tree seed in the Seasonal Garden shop. Each seed grows
+/// through 3 stages and matures into a season-specific tree.
+class SeedEntry {
+  final String type;
+  final String name;
+  final String season;
+  final String seasonEmoji;
+  final int cost;
+
+  const SeedEntry({
+    required this.type,
+    required this.name,
+    required this.season,
+    required this.seasonEmoji,
+    required this.cost,
+  });
+}
+
+/// The 4 seasonal tree seeds sold in the Garden shop — one distinct mature
+/// tree per season, all priced identically at 150 ✨.
+const List<SeedEntry> seedCatalog = [
+  SeedEntry(
+    type: 'birch',
+    name: 'Birch Tree',
+    season: 'Spring',
+    seasonEmoji: '🌸',
+    cost: 150,
+  ),
+  SeedEntry(
+    type: 'oak',
+    name: 'Oak Tree',
+    season: 'Summer',
+    seasonEmoji: '☀️',
+    cost: 150,
+  ),
+  SeedEntry(
+    type: 'maple',
+    name: 'Maple Tree',
+    season: 'Autumn',
+    seasonEmoji: '🍂',
+    cost: 150,
+  ),
+  SeedEntry(
+    type: 'pine',
+    name: 'Pine Tree',
+    season: 'Winter',
+    seasonEmoji: '❄️',
+    cost: 150,
+  ),
+];
+
+/// Returns the catalog entry for a seed [type], or null when unknown.
+SeedEntry? seedEntryByType(String type) {
+  for (final entry in seedCatalog) {
+    if (entry.type == type) return entry;
+  }
+  return null;
+}
 
 final Random _random = Random();
 
@@ -582,16 +635,20 @@ class RewardsNotifier extends Notifier<UserModel> {
     }
   }
 
-  /// Plants a seed in the Forest-style Garden. Atomically verifies the balance
-  /// inside a Firestore transaction, deducts the exact cost, and appends a new
-  /// `GardenPlotModel` (with `DateTime.now()` as `plantedAt`) to the user's
+  /// Plants a seed in the Seasonal Garden. Atomically verifies the balance
+  /// inside a Firestore transaction, deducts the catalog price, and appends a
+  /// new `GardenPlotModel` (with `DateTime.now()` as `plantedAt`) to the user's
   /// `garden` list. A `gridIndex` already occupied by an existing plot is
   /// rejected so plots can never be overwritten. Returns `true` when the seed
   /// was planted, `false` when unaffordable, the plot is taken, or the type is
   /// unknown.
-  Future<bool> plantSeed(int index, String type, int cost) async {
+  Future<bool> plantSeed(int index, String type) async {
+    final entry = seedEntryByType(type);
+    if (entry == null) return false;
+    final cost = entry.cost;
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null || !seedCosts.containsKey(type)) return false;
+    if (uid == null) return false;
 
     final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
     try {

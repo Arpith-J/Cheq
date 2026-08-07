@@ -329,7 +329,7 @@ class _CoinPillState extends ConsumerState<_CoinPill>
               Text('✨', style: const TextStyle(fontSize: 16)),
               const SizedBox(width: 6),
               Text(
-                _formatCompact(coins),
+                _format(coins),
                 key: ValueKey<int>(coins),
                 style: TextStyle(
                   color: onGold,
@@ -344,17 +344,9 @@ class _CoinPillState extends ConsumerState<_CoinPill>
     );
   }
 
-  /// Compact number formatting, e.g. 1_200 -> '1.2k', 2_500_000 -> '2.5M'.
-  String _formatCompact(int n) {
-    if (n >= 1000000) return '${_trimNum(n / 1000000)}M';
-    if (n >= 1000) return '${_trimNum(n / 1000)}k';
-    return '$n';
-  }
-
-  String _trimNum(double d) {
-    final fixed = d.toStringAsFixed(1);
-    return fixed.endsWith('.0')
-        ? fixed.substring(0, fixed.length - 2)
-        : fixed;
-  }
+  /// Standard comma-separated number formatting, e.g. 9500 -> '9,500'.
+  String _format(int n) => n.toString().replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+        (Match m) => '${m[1]},',
+      );
 }
