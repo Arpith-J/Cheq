@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'garden_plot_model.dart';
 import 'star_model.dart';
 
 class UserModel {
@@ -17,6 +18,7 @@ class UserModel {
   final List<String> unlockedWidgetSkins;
   final String activeWidgetSkin;
   final List<StarModel> constellation;
+  final List<GardenPlotModel> garden;
 
   /// Total minutes spent per task category, banked forever so deleting old
   /// tasks never wipes long-term stats. Keyed by category name.
@@ -42,6 +44,7 @@ class UserModel {
     this.unlockedWidgetSkins = const ['default'],
     this.activeWidgetSkin = 'default',
     this.constellation = const [],
+    this.garden = const [],
     this.categoryMinutes = const {},
     this.dailyActivityLog = const {},
   });
@@ -62,6 +65,7 @@ class UserModel {
     List<String>? unlockedWidgetSkins,
     String? activeWidgetSkin,
     List<StarModel>? constellation,
+    List<GardenPlotModel>? garden,
     Map<String, int>? categoryMinutes,
     Map<String, int>? dailyActivityLog,
   }) {
@@ -81,6 +85,7 @@ class UserModel {
       unlockedWidgetSkins: unlockedWidgetSkins ?? this.unlockedWidgetSkins,
       activeWidgetSkin: activeWidgetSkin ?? this.activeWidgetSkin,
       constellation: constellation ?? this.constellation,
+      garden: garden ?? this.garden,
       categoryMinutes: categoryMinutes ?? this.categoryMinutes,
       dailyActivityLog: dailyActivityLog ?? this.dailyActivityLog,
     );
@@ -105,6 +110,7 @@ class UserModel {
         'unlockedWidgetSkins': unlockedWidgetSkins,
         'activeWidgetSkin': activeWidgetSkin,
         'constellation': constellation.map((s) => s.toMap()).toList(),
+        'garden': garden.map((p) => p.toMap()).toList(),
         'categoryMinutes': categoryMinutes,
         'dailyActivityLog': dailyActivityLog,
       };
@@ -131,6 +137,10 @@ class UserModel {
         activeWidgetSkin: (map['activeWidgetSkin'] as String?) ?? 'default',
         constellation: (map['constellation'] as List<dynamic>? ?? const [])
             .map((e) => StarModel.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+        garden: (map['garden'] as List<dynamic>? ?? const [])
+            .map((e) =>
+                GardenPlotModel.fromMap(Map<String, dynamic>.from(e as Map)))
             .toList(),
         categoryMinutes: _parseIntMap(map['categoryMinutes']),
         dailyActivityLog: _parseIntMap(map['dailyActivityLog']),

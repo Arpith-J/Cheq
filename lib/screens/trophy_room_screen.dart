@@ -101,8 +101,7 @@ class _StatsHeader extends StatelessWidget {
       children: [
         Expanded(
           child: _HeaderCard(
-            icon: Icons.monetization_on_rounded,
-            iconColor: const Color(0xFFFFD54F),
+            icon: const Text('✨', style: TextStyle(fontSize: 28)),
             label: 'Coins',
             value: '${user.coins}',
             cs: cs,
@@ -111,8 +110,7 @@ class _StatsHeader extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: _HeaderCard(
-            icon: Icons.local_fire_department_rounded,
-            iconColor: cs.error,
+            icon: Icon(Icons.local_fire_department_rounded, size: 28, color: cs.error),
             label: 'Day Streak',
             value: '${user.streakCount}',
             cs: cs,
@@ -126,14 +124,12 @@ class _StatsHeader extends StatelessWidget {
 class _HeaderCard extends StatelessWidget {
   const _HeaderCard({
     required this.icon,
-    required this.iconColor,
     required this.label,
     required this.value,
     required this.cs,
   });
 
-  final IconData icon;
-  final Color iconColor;
+  final Widget icon;
   final String label;
   final String value;
   final ColorScheme cs;
@@ -149,7 +145,7 @@ class _HeaderCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(icon, size: 28, color: iconColor),
+          icon,
           const SizedBox(height: 6),
           Text(
             value,
