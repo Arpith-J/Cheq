@@ -632,6 +632,52 @@ class RewardsNotifier extends Notifier<UserModel> {
     }
   }
 
+  /// Optimistically relocates a star in local state so the constellation
+  /// repaints live under the user's finger while paused. The permanent
+  /// Firestore write happens in [moveStar] when the drag ends.
+  void previewStarMove(String starId, double dx, double dy) {
+    final idx = state.constellation.indexWhere((s) => s.id == starId);
+    if (idx < 0) return;
+    state = state.copyWith(
+      constellation: [
+        for (var i = 0; i < state.constellation.length; i++)
+          i == idx
+              ? state.constellation[i].copyWith(dx: dx, dy: dy)
+              : state.constellation[i],
+      ],
+    );
+  }
+
+  /// Persists a star's new normalized position (0–1) to Firestore atomically
+  /// so the rearranged constellation follows the user across devices.
+  Future<void> moveStar(String starId, double dx, double dy) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    try {
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final snap = await tx.get(userRef);
+        final data = snap.data();
+        if (data == null) return;
+
+        final constellation = (data['constellation'] as List<dynamic>? ?? const [])
+            .map((e) => StarModel.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList();
+
+        final idx = constellation.indexWhere((s) => s.id == starId);
+        if (idx < 0) return;
+
+        constellation[idx] = constellation[idx].copyWith(dx: dx, dy: dy);
+        tx.update(userRef, {
+          'constellation': constellation.map((s) => s.toMap()).toList(),
+        });
+      });
+    } catch (e) {
+      debugPrint('Star move failed: $e');
+    }
+  }
+
   Future<void> _commit(
     String? uid,
     int coinDelta,
