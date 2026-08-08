@@ -2,10 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:weather_animation/weather_animation.dart';
 
 import '../models/garden_plot_model.dart';
 import '../providers/rewards_provider.dart';
+import 'petal_painter.dart';
+import 'snow_painter.dart';
 
 /// Total number of tiles in the sandbox biome (20 × 20).
 const int gardenPlotCount = 400;
@@ -37,14 +38,25 @@ const Map<String, Color> _seedSeasonalColors = {
 Color _seasonalColorFor(String seedType) =>
     _seedSeasonalColors[seedType] ?? Colors.green;
 
-/// Base ground color for each of the 4 seasonal quadrants.
+/// Base ground color for each of the 4 seasonal quadrants. These act as the
+/// fallback color shown while the terrain texture asset loads.
 ///
 /// Top-Left Spring, Top-Right Summer, Bottom-Left Autumn, Bottom-Right Winter.
 Color _groundColorFor(int x, int y) {
   if (x < 10 && y < 10) return const Color(0xFFAED581); // Spring
   if (x >= 10 && y < 10) return const Color(0xFF66BB6A); // Summer
   if (x < 10 && y >= 10) return const Color(0xFFD84315); // Autumn
-  return const Color(0xFFE0F7FA); // Winter
+  return const Color(0xFF2C3E50); // Winter — deep twilight blue
+}
+
+/// Rich terrain texture for each of the 4 seasonal quadrants.
+///
+/// Top-Left Spring, Top-Right Summer, Bottom-Left Autumn, Bottom-Right Winter.
+String _groundTextureFor(int x, int y) {
+  if (x < 10 && y < 10) return 'assets/images/grass_tile.png'; // Spring
+  if (x >= 10 && y < 10) return 'assets/images/grass_tile.png'; // Summer
+  if (x < 10 && y >= 10) return 'assets/images/dirt_tile.png'; // Autumn
+  return 'assets/images/snow_tile.png'; // Winter
 }
 
 /// Cobblestone/dirt color for the demarcation cross.
@@ -103,21 +115,12 @@ class GardenTab extends ConsumerWidget {
                 height: _quadrantSize,
                 child: IgnorePointer(
                   child: ClipRect(
-                    child: SnowWidget(
-                      snowConfig: const SnowConfig(
-                        count: 30,
-                        size: 16,
-                        areaXStart: 0,
-                        areaXEnd: _quadrantSize - 24,
-                        areaYStart: 0,
-                        areaYEnd: _quadrantSize - 24,
-                      ),
-                    ),
+                    child: SnowWeatherOverlay(),
                   ),
                 ),
               ),
 
-              // ── Spring: drifting petals/leaves over the top-left quadrant ─
+              // ── Spring: drifting petals over the top-left quadrant ───────
               Positioned(
                 left: 0,
                 top: 0,
@@ -125,15 +128,7 @@ class GardenTab extends ConsumerWidget {
                 height: _quadrantSize,
                 child: IgnorePointer(
                   child: ClipRect(
-                    child: WindWidget(
-                      windConfig: const WindConfig(
-                        color: Color(0xFFF48FB1),
-                        width: 5,
-                        y: _quadrantSize / 2,
-                        windGap: 18,
-                        slideXEnd: _quadrantSize - 20,
-                      ),
-                    ),
+                    child: PetalWeatherOverlay(),
                   ),
                 ),
               ),
@@ -169,13 +164,26 @@ class _BiomeTile extends ConsumerWidget {
           ? () => _showSeedPicker(context, ref)
           : null,
       child: Container(
-        decoration: BoxDecoration(
-          color: groundColor,
+        // Fallback solid color is painted first so a not-yet-decoded texture
+        // never flashes the surrounding background behind it.
+        decoration: BoxDecoration(color: groundColor),
+        foregroundDecoration: BoxDecoration(
           border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
         ),
-        child: plot == null
-            ? _EmptyPlot(showHint: !onPath)
-            : Center(child: _growthWidget(plot)),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (!onPath)
+              Image.asset(
+                _groundTextureFor(x, y),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            plot == null
+                ? _EmptyPlot(showHint: !onPath)
+                : Center(child: _growthWidget(plot)),
+          ],
+        ),
       ),
     );
   }
