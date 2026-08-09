@@ -24,21 +24,20 @@ class FirestoreService {
   }
 
   /// AUTOMATIC 2-DAY CLEANUP CYCLE
-  /// Finds all tasks marked as completed ('isDone == true') whose scheduled 
-  /// date is older than 2 days relative to today and deletes them.
+  /// Deletes a task ONLY when BOTH conditions hold:
+  ///   a) the task is completed ('isDone == true')
+  ///   b) its 'startTime' is before (now - 2 days)
+  /// Pending tasks ('isDone == false') always bypass deletion, regardless of age.
   Future<void> runAutomaticDataCleanup(List<PlannerModel> allTasks) async {
     final ref = _plannerRef;
     if (ref == null) return;
 
     try {
-      final now = DateTime.now();
-      // Changed to 2 days
-      final thresholdDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 2));
+      final cutoff = DateTime.now().subtract(const Duration(days: 2));
 
-      // Filter tasks to find completed ones older than 2 days
+      // Filter tasks to find completed ones strictly older than 2 days
       final tasksToDelete = allTasks.where((task) {
-        final taskDate = DateTime(task.startTime.year, task.startTime.month, task.startTime.day);
-        return task.isDone && taskDate.isBefore(thresholdDate);
+        return task.isDone == true && task.startTime.isBefore(cutoff);
       }).toList();
 
       if (tasksToDelete.isEmpty) return;

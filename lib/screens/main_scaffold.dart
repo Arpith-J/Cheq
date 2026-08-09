@@ -45,9 +45,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
       activeIcon: Icons.calendar_today_rounded,
     ),
     _TabItem(
-      label:      'Garden',
-      icon:       Icons.local_florist_outlined,
-      activeIcon: Icons.local_florist_rounded,
+      label:      'Rewards',
+      icon:       Icons.emoji_events_outlined,
+      activeIcon: Icons.emoji_events_rounded,
     ),
   ];
 
@@ -121,7 +121,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
             key: ValueKey<int>(_selectedIndex),
             width: 120, // Wide enough to hold 'Planner' and 'Rewards' without wrapping
             child: Text(
-              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Garden'),
+              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Rewards'),
               style: const TextStyle(fontWeight: FontWeight.bold), 
             ),
           ),
@@ -226,7 +226,7 @@ class _TabItem {
 // _CoinPill — context-aware coin balance in the AppBar
 // ---------------------------------------------------------------------------
 //
-// Permanently visible on the Rewards/Garden tab (index 2). On the To-Do and
+// Permanently visible on the Rewards tab (index 2). On the To-Do and
 // Planner tabs it stays hidden and only flashes in temporarily whenever the
 // live coin balance changes, fading back out after 2 seconds.
 

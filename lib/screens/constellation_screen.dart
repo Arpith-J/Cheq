@@ -212,22 +212,27 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                   constraints.maxWidth,
                   constraints.maxHeight,
                 );
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: (details) =>
-                      _handlePanStart(details, canvasSize),
-                  onPanUpdate: (details) =>
-                      _handlePanUpdate(details, canvasSize),
-                  onPanEnd: _handlePanEnd,
-                  child: AnimatedBuilder(
-                    animation: _controller,
-                    builder: (context, _) => CustomPaint(
-                      size: Size.infinite,
-                      painter: ConstellationPainter(
-                        stars: user.constellation,
-                        animationValue: _controller.value,
-                        panOffset: _panOffset,
-                        lineColor: lineColor,
+                return InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  boundaryMargin: const EdgeInsets.all(double.infinity),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: (details) =>
+                        _handlePanStart(details, canvasSize),
+                    onPanUpdate: (details) =>
+                        _handlePanUpdate(details, canvasSize),
+                    onPanEnd: _handlePanEnd,
+                    child: AnimatedBuilder(
+                      animation: _controller,
+                      builder: (context, _) => CustomPaint(
+                        size: Size.infinite,
+                        painter: ConstellationPainter(
+                          stars: user.constellation,
+                          animationValue: _controller.value,
+                          panOffset: _panOffset,
+                          lineColor: lineColor,
+                        ),
                       ),
                     ),
                   ),
