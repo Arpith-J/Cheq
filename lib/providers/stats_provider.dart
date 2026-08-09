@@ -22,7 +22,7 @@ final statsProvider = Provider<StatsModel>((ref) {
   for (final task in allTasks) {
     if (!task.isDone) continue;
 
-    final hours = task.endTime.difference(task.startTime).inMinutes / 60.0;
+    final hours = _calculateSafeMinutes(task.startTime, task.endTime) / 60.0;
     totalHoursAllTime += hours;
 
     final category = task.categoryName ?? 'Uncategorized';
@@ -52,3 +52,11 @@ final statsProvider = Provider<StatsModel>((ref) {
     heatmapDatasets: heatmapDatasets,
   );
 });
+
+int _calculateSafeMinutes(DateTime startTime, DateTime endTime) {
+  DateTime safeEndTime = endTime.isBefore(startTime)
+      ? endTime.add(const Duration(days: 1))
+      : endTime;
+  int rawMinutes = safeEndTime.difference(startTime).inMinutes;
+  return rawMinutes < 0 ? 0 : rawMinutes;
+}
