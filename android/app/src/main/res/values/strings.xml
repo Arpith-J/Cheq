@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ariadne</string>
-    <string name="widget_header">Ariadne Tasks</string> 
+    <string name="widget_header">Ariadne Tasks</string>
+    <string name="widget_label_today">Today\'s Tasks</string>
+    <string name="widget_label_planner">Daily Planner</string>
+    <string name="widget_label_todo">To-Do List</string>
+    <string name="widget_desc_today">View today\'s pending tasks</string>
+    <string name="widget_desc_planner">View your full daily planner</string>
+    <string name="widget_desc_todo">Manage your To-Do lists</string>
+    <string name="widget_header_today">Today\'s Tasks</string>
+    <string name="widget_header_planner">Daily Planner</string>
+    <string name="widget_header_todo">To-Do List</string>
+    <string name="widget_empty_today">No tasks scheduled for today!</string>
+    <string name="widget_empty_planner">No pending tasks!</string>
+    <string name="widget_empty_todo">No pending to-dos!</string>
 </resources>

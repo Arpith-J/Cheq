@@ -64,14 +64,25 @@ class FirestoreService {
 
   Future<void> syncWidgetChangesToFirestore() async {
     try {
-      final String? tasksJson =
-          await HomeWidget.getWidgetData<String>('flutter.daily_tasks_key');
-
-      if (tasksJson == null || tasksJson.isEmpty) return;
-
-      final List<dynamic> widgetTasks = jsonDecode(tasksJson);
       final ref = _plannerRef;
       if (ref == null) return;
+
+      // Pull all THREE widget datasets back out of SharedPreferences.
+      final todayJson =
+          await HomeWidget.getWidgetData<String>(HomeWidgetService.todayDataKey);
+      final plannerJson =
+          await HomeWidget.getWidgetData<String>(HomeWidgetService.plannerDataKey);
+      final todoJson =
+          await HomeWidget.getWidgetData<String>(HomeWidgetService.todoDataKey);
+
+      final List<dynamic> todayTasks =
+          todayJson == null || todayJson.isEmpty ? [] : jsonDecode(todayJson) as List<dynamic>;
+      final List<dynamic> plannerTasks =
+          plannerJson == null || plannerJson.isEmpty ? [] : jsonDecode(plannerJson) as List<dynamic>;
+      final List<dynamic> todoItems =
+          todoJson == null || todoJson.isEmpty ? [] : jsonDecode(todoJson) as List<dynamic>;
+
+      if (todayTasks.isEmpty && plannerTasks.isEmpty && todoItems.isEmpty) return;
 
       final snapshot = await ref.get();
       final currentTasks = snapshot.docs
@@ -84,13 +95,16 @@ class FirestoreService {
 
       bool changedAnything = false;
 
-      for (final raw in widgetTasks) {
+      // Planner task toggles (rows overlap between the Today and Planner
+      // widgets, so dedupe by task id before syncing).
+      final seen = <String>{};
+      for (final raw in [...todayTasks, ...plannerTasks]) {
         if (raw is! Map<String, dynamic>) continue;
 
         final String? taskId = raw['id'] as String?;
         final bool widgetDone = raw['isDone'] as bool? ?? false;
 
-        if (taskId == null) continue;
+        if (taskId == null || !seen.add(taskId)) continue;
 
         final existing = taskMap[taskId];
         if (existing == null) continue;
@@ -104,19 +118,101 @@ class FirestoreService {
         }
       }
 
+      // To-Do item toggles from the Todo widget.
+      if (todoItems.isNotEmpty) {
+        changedAnything =
+            await _syncTodoWidgetChanges(todoItems) || changedAnything;
+      }
+
       if (changedAnything) {
         final refreshed = await ref.get();
         final refreshedTasks = refreshed.docs
             .map((doc) => PlannerModel.fromMap(doc.data()))
             .toList();
             
-        // Trigger self-cleaning on status alterations
+        // Re-push clean data and trigger self-cleaning on status alterations
         _processAndSyncWidgets(refreshedTasks);
         unawaited(runAutomaticDataCleanup(refreshedTasks));
       }
     } catch (e) {
       debugPrint("Widget sync-back failed: $e");
     }
+  }
+
+  /// Compares the To-Do widget's rows against Firestore and applies any
+  /// completions to the owning `todo_collections` document. Returns true when
+  /// at least one collection was mutated.
+  Future<bool> _syncTodoWidgetChanges(List<dynamic> widgetItems) async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+
+    // Group rows that were marked as done by their owning collection.
+    final byCollection = <String, List<Map<String, dynamic>>>{};
+    for (final raw in widgetItems) {
+      if (raw is! Map) continue;
+      final item = Map<String, dynamic>.from(raw);
+      if (item['isDone'] != true) continue;
+
+      final collectionId = item['collectionId'] as String?;
+      final itemId = item['id'] as String?;
+      if (collectionId == null || itemId == null) continue;
+
+      byCollection.putIfAbsent(collectionId, () => []).add(item);
+    }
+    if (byCollection.isEmpty) return false;
+
+    var changed = false;
+    for (final entry in byCollection.entries) {
+      final colRef = _db
+          .collection('users')
+          .doc(user.uid)
+          .collection('todo_collections')
+          .doc(entry.key);
+
+      final colSnap = await colRef.get();
+      if (!colSnap.exists) continue;
+
+      final data = colSnap.data()!;
+      final completedIds = entry.value.map((e) => e['id']).toSet();
+      final rawItems = List<Map<String, dynamic>>.from(
+        ((data['items'] as List<dynamic>?) ?? const [])
+            .map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+
+      final updated = rawItems.map((item) {
+        if (completedIds.contains(item['id']) && item['isDone'] != true) {
+          return {...item, 'isDone': true};
+        }
+        return item;
+      }).toList();
+
+      final didChange =
+          rawItems.length != updated.length ||
+          rawItems.any((a) {
+            final b = updated[rawItems.indexOf(a)];
+            return a['isDone'] != b['isDone'];
+          });
+      if (!didChange) continue;
+
+      final allDone = updated.every((item) => item['isDone'] == true);
+      final wasArchived = data['isArchived'] as bool? ?? false;
+      final batch = _db.batch();
+      batch.update(colRef, {'items': updated});
+      if (allDone) {
+        batch.update(colRef, {
+          'isArchived': true,
+          'archivedAt': FieldValue.serverTimestamp(),
+        });
+      } else if (wasArchived) {
+        batch.update(colRef, {
+          'isArchived': false,
+          'archivedAt': FieldValue.delete(),
+        });
+      }
+      await batch.commit();
+      changed = true;
+    }
+    return changed;
   }
 
   Stream<List<PlannerModel>> streamPlannerEntries() {
@@ -184,39 +280,64 @@ class FirestoreService {
 
   void _processAndSyncWidgets(List<PlannerModel> allTasks) {
     try {
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      final todaysTasks = allTasks.where((entry) {
-        final taskDate = DateTime(entry.startTime.year, entry.startTime.month, entry.startTime.day);
-        
-        final isToday = taskDate.year == today.year &&
-                        taskDate.month == today.month &&
-                        taskDate.day == today.day;
-
-        if (isToday) return true;
-        if (taskDate.isBefore(today) && !entry.isDone) return true;
-        if (taskDate.isAfter(today)) return false;
-
-        switch (entry.repeatInterval) {
-          case RepeatInterval.none: return false;
-          case RepeatInterval.daily: return true;
-          case RepeatInterval.weekly: return entry.startTime.weekday == today.weekday;
-          case RepeatInterval.monthly: return entry.startTime.day == today.day;
-          case RepeatInterval.custom:
-            if (entry.customInterval == null) return false;
-            final difference = today.difference(taskDate).inDays;
-            final stepInDays = entry.customInterval!.inDays;
-            return stepInDays > 0 && (difference % stepInDays == 0);
-        }
-      }).toList()
-        ..sort((a, b) => a.startTime.compareTo(b.startTime));
-
-      final pendingTasks = todaysTasks.where((task) => !task.isDone).toList();
-
-      HomeWidgetService.updateHomeScreenWidgetData(pendingTasks);
+      unawaited(_pushAllWidgetData(allTasks));
     } catch (e) {
       debugPrint("Widget processing engine sync failed: $e");
+    }
+  }
+
+  /// Fire-and-forget push of the three widget datasets (Today, Planner, Todo).
+  Future<void> _pushAllWidgetData(List<PlannerModel> allTasks) async {
+    try {
+      final todoItems = await _fetchActiveTodoItems();
+      await HomeWidgetService.updateHomeScreenWidgets(
+        tasks: allTasks,
+        todoItems: todoItems,
+      );
+    } catch (e) {
+      debugPrint("Widget processing engine sync failed: $e");
+    }
+  }
+
+  /// Gathers every pending item (`isDone == false`) across all active
+  /// (non-archived) `todo_collections`, shaped as widget rows.
+  Future<List<Map<String, dynamic>>> _fetchActiveTodoItems() async {
+    final user = _auth.currentUser;
+    if (user == null) return const [];
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .doc(user.uid)
+          .collection('todo_collections')
+          .get();
+
+      final items = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['isArchived'] == true) continue;
+
+        final collectionTitle = data['title'] as String? ?? '';
+        final rawItems = (data['items'] as List<dynamic>?) ?? const [];
+        for (final raw in rawItems) {
+          if (raw is! Map) continue;
+          final item = Map<String, dynamic>.from(raw);
+          if (item['isDone'] == true) continue;
+
+          items.add({
+            'id': item['id'],
+            'title': item['text'] as String? ?? '',
+            'isDone': false,
+            'time': '',
+            'date': collectionTitle,
+            'collectionId': doc.id,
+          });
+        }
+      }
+      return items;
+    } catch (e) {
+      debugPrint("Failed to fetch todo items for widget: $e");
+      return const [];
     }
   }
 

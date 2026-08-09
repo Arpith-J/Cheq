@@ -8,11 +8,17 @@ import org.json.JSONArray
 
 class WidgetRemoteViewsService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
-        return WidgetDataProviderFactory(applicationContext)
+        // Each widget provider stamps its own prefs key onto the service
+        // intent, so this single service can serve Today, Planner & Todo lists.
+        val widgetDataKey = intent.getStringExtra("widget_data_key") ?: "widget_data_today"
+        return WidgetDataProviderFactory(applicationContext, widgetDataKey)
     }
 }
 
-class WidgetDataProviderFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
+class WidgetDataProviderFactory(
+    private val context: Context,
+    private val widgetDataKey: String,
+) : RemoteViewsService.RemoteViewsFactory {
     private var tasksArray = JSONArray()
     private val PREFS_NAME = "HomeWidgetPreferences"
 
@@ -24,8 +30,7 @@ class WidgetDataProviderFactory(private val context: Context) : RemoteViewsServi
         tasksArray = JSONArray() // Clear old cache
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val tasksJson = prefs.getString("flutter.daily_tasks_key", null) 
-                ?: prefs.getString("daily_tasks_key", null)
+            val tasksJson = prefs.getString(widgetDataKey, null)
 
             if (!tasksJson.isNullOrEmpty()) {
                 tasksArray = JSONArray(tasksJson)
