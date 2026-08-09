@@ -70,7 +70,6 @@ class ConstellationView extends ConsumerStatefulWidget {
 class _ConstellationViewState extends ConsumerState<ConstellationView>
     with TickerProviderStateMixin {
   late final AnimationController _controller;
-  Offset _panOffset = Offset.zero;
   bool _isBuying = false;
   bool _panelExpanded = false;
 
@@ -106,55 +105,43 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
   }
 
   /// Returns the star whose canvas position is within ~30px of [pos], or null.
+  /// Delegates to the painter so hit tests match what is actually rendered
+  /// (drift animation included).
   StarModel? _starAt(Offset pos, Size size) {
-    final stars = ref.read(rewardsProvider).constellation;
-    StarModel? nearest;
-    var bestSquared = 30.0 * 30.0;
-    for (final star in stars) {
-      final sx = star.dx * size.width;
-      final sy = star.dy * size.height;
-      final dx = pos.dx - sx;
-      final dy = pos.dy - sy;
-      final distSquared = dx * dx + dy * dy;
-      if (distSquared <= bestSquared) {
-        bestSquared = distSquared;
-        nearest = star;
-      }
-    }
-    return nearest;
+    return ConstellationPainter.starAt(
+      ref.read(rewardsProvider).constellation,
+      size,
+      pos,
+      animationValue: _controller.value,
+    );
   }
 
   void _handlePanStart(DragStartDetails details, Size size) {
     if (!_isPaused) return;
-    setState(() {
-      _draggedStarId = _starAt(details.localPosition, size)?.id;
-    });
+    // Only claim the gesture when the touch actually lands on a star;
+    // otherwise ignore it so the InteractiveViewer can pan/zoom.
+    final star = _starAt(details.localPosition, size);
+    if (star == null) return;
+    setState(() => _draggedStarId = star.id);
   }
 
   void _handlePanUpdate(DragUpdateDetails details, Size size) {
     final draggedId = _draggedStarId;
-    if (draggedId != null) {
-      // Reposition the held star to the finger, clamped to the canvas so it
-      // can never be dragged off-screen.
-      final dx =
-          (details.localPosition.dx / size.width).clamp(0.05, 0.95).toDouble();
-      final dy =
-          (details.localPosition.dy / size.height).clamp(0.05, 0.95).toDouble();
-      ref.read(rewardsProvider.notifier).previewStarMove(draggedId, dx, dy);
-    } else {
-      // No star grabbed — preserve the original pan-the-field behavior.
-      setState(() => _panOffset += details.delta);
-    }
+    if (draggedId == null) return;
+    // Reposition the held star to the finger, clamped to the canvas so it
+    // can never be dragged off-screen.
+    final dx =
+        (details.localPosition.dx / size.width).clamp(0.05, 0.95).toDouble();
+    final dy =
+        (details.localPosition.dy / size.height).clamp(0.05, 0.95).toDouble();
+    ref.read(rewardsProvider.notifier).previewStarMove(draggedId, dx, dy);
   }
 
   void _handlePanEnd(DragEndDetails details) {
     final draggedId = _draggedStarId;
     setState(() => _draggedStarId = null);
 
-    if (draggedId == null) {
-      setState(() => _panOffset = Offset.zero);
-      return;
-    }
+    if (draggedId == null) return;
 
     // Persist the dragged star's final position to Firestore.
     final user = ref.read(rewardsProvider);
@@ -217,12 +204,17 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                   maxScale: 4.0,
                   boundaryMargin: const EdgeInsets.all(double.infinity),
                   child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onPanStart: (details) =>
-                        _handlePanStart(details, canvasSize),
-                    onPanUpdate: (details) =>
-                        _handlePanUpdate(details, canvasSize),
-                    onPanEnd: _handlePanEnd,
+                    // Only claim touches that land on a star (the painter's
+                    // hitTest only hits near rendered stars); everything else
+                    // falls through to the InteractiveViewer for pan/zoom.
+                    behavior: HitTestBehavior.deferToChild,
+                    onPanStart: _isPaused
+                        ? (details) => _handlePanStart(details, canvasSize)
+                        : null,
+                    onPanUpdate: _isPaused
+                        ? (details) => _handlePanUpdate(details, canvasSize)
+                        : null,
+                    onPanEnd: _isPaused ? _handlePanEnd : null,
                     child: AnimatedBuilder(
                       animation: _controller,
                       builder: (context, _) => CustomPaint(
@@ -230,7 +222,7 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                         painter: ConstellationPainter(
                           stars: user.constellation,
                           animationValue: _controller.value,
-                          panOffset: _panOffset,
+                          canvasSize: canvasSize,
                           lineColor: lineColor,
                         ),
                       ),

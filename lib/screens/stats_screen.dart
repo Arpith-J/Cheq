@@ -262,8 +262,11 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                       showTitles: true,
                       reservedSize: 40,
                       getTitlesWidget: (value, meta) {
+                        final String text = value % 1 == 0
+                            ? '${value.toInt()}h'
+                            : '${value.toStringAsFixed(1)}h';
                         return Text(
-                          '${value.toInt()}h',
+                          text,
                           style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                         );
                       },

@@ -11,10 +11,10 @@ import android.widget.RemoteViews
 import org.json.JSONArray
 import es.antonborri.home_widget.HomeWidgetProvider
 
-class DailyTaskWidgetProvider : HomeWidgetProvider() {
+class TodoWidgetProvider : HomeWidgetProvider() {
 
     private val PREFS_NAME = "HomeWidgetPreferences"
-    private val WIDGET_DATA_KEY = "widget_data_today"
+    private val WIDGET_DATA_KEY = "widget_data_todo"
 
     override fun onReceive(context: Context, intent: Intent) {
         val actionType = intent.getStringExtra("action")
@@ -65,7 +65,7 @@ class DailyTaskWidgetProvider : HomeWidgetProvider() {
 
     private fun refreshWidgetList(context: Context) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
-        val thisWidget = ComponentName(context, DailyTaskWidgetProvider::class.java)
+        val thisWidget = ComponentName(context, TodoWidgetProvider::class.java)
         val allWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
         appWidgetManager.notifyAppWidgetViewDataChanged(allWidgetIds, R.id.widget_list_view)
     }
@@ -79,7 +79,7 @@ class DailyTaskWidgetProvider : HomeWidgetProvider() {
         val widgetSkin = widgetData.getString("widget_skin", "default") ?: "default"
 
         for (appWidgetId in appWidgetIds) {
-            val views = RemoteViews(context.packageName, R.layout.widget_layout)
+            val views = RemoteViews(context.packageName, R.layout.widget_layout_todo)
 
             applyWidgetSkin(views, widgetSkin)
 
@@ -107,7 +107,7 @@ class DailyTaskWidgetProvider : HomeWidgetProvider() {
             views.setViewVisibility(R.id.widget_list_view, android.view.View.VISIBLE)
 
             // Setup List Item Click Interception
-            val clickIntent = Intent(context, DailyTaskWidgetProvider::class.java)
+            val clickIntent = Intent(context, TodoWidgetProvider::class.java)
             val pendingIntentTemplate = PendingIntent.getBroadcast(
                 context, 1, clickIntent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )

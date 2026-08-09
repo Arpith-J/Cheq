@@ -43,13 +43,29 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
-        <receiver android:name="com.example.cheq.DailyTaskWidgetProvider" android:exported="true">
+        <receiver android:name="com.example.cheq.DailyTaskWidgetProvider" android:label="@string/widget_label_today" android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/daily_task_widget_info" />
+        </receiver>
+        <receiver android:name="com.example.cheq.PlannerWidgetProvider" android:label="@string/widget_label_planner" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/planner_widget_info" />
+        </receiver>
+        <receiver android:name="com.example.cheq.TodoWidgetProvider" android:label="@string/widget_label_todo" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/todo_widget_info" />
         </receiver>
         <service 
             android:name=".WidgetRemoteViewsService"

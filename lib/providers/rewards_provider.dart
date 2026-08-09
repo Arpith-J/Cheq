@@ -517,8 +517,8 @@ class RewardsNotifier extends Notifier<UserModel> {
       HomeWidgetService.activeWidgetSkin = skinId;
       final tasks = ref.read(firestorePlannerStreamProvider).value ??
           const <PlannerModel>[];
-      unawaited(HomeWidgetService.updateHomeScreenWidgetData(
-        tasks,
+      unawaited(HomeWidgetService.updateHomeScreenWidgets(
+        tasks: tasks,
         widgetSkin: skinId,
       ));
       return true;

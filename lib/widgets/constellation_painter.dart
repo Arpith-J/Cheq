@@ -15,15 +15,55 @@ class ConstellationPainter extends CustomPainter {
     required this.animationValue,
     this.panOffset = Offset.zero,
     this.lineColor = Colors.white,
+    this.canvasSize = Size.zero,
   });
 
   final List<StarModel> stars;
   final double animationValue;
   final Offset panOffset;
 
+  /// The layout size of the canvas, used by [hitTest] so touches near a
+  /// rendered star are recognized regardless of the current zoom/pan.
+  final Size canvasSize;
+
   /// Base color of the connecting constellation lines. Derived from the
   /// surrounding theme so lines stay visible on both dark and light surfaces.
   final Color lineColor;
+
+  /// Grab radius (px) used to decide whether a touch intersects a star.
+  static const double grabRadius = 30.0;
+
+  /// Returns the star whose drifting, rendered position is within [grabRadius]
+  /// of [position] (canvas-local space), or null. Mirrors exactly what [paint]
+  /// draws (including the orbit drift and [panOffset]) so hit tests always
+  /// agree with the visual.
+  static StarModel? starAt(
+    List<StarModel> stars,
+    Size canvasSize,
+    Offset position, {
+    double animationValue = 0,
+    double radius = grabRadius,
+    Offset panOffset = Offset.zero,
+  }) {
+    final base = position - panOffset;
+    final phase = animationValue * 2 * math.pi;
+    final threshold = radius * radius;
+    StarModel? nearest;
+    var bestSquared = threshold;
+    for (final star in stars) {
+      final seed = star.id.hashCode.toDouble();
+      final sx = star.dx * canvasSize.width + math.sin(phase + seed) * _driftAmplitude;
+      final sy = star.dy * canvasSize.height + math.cos(phase + seed * 1.7) * _driftAmplitude;
+      final dx = base.dx - sx;
+      final dy = base.dy - sy;
+      final distSquared = dx * dx + dy * dy;
+      if (distSquared <= bestSquared) {
+        bestSquared = distSquared;
+        nearest = star;
+      }
+    }
+    return nearest;
+  }
 
   /// Color per star category.
   static const Map<String, Color> categoryColors = {
@@ -120,6 +160,22 @@ class ConstellationPainter extends CustomPainter {
       ..quadraticBezierTo(center.dx, center.dy, center.dx - radius, center.dy)
       ..quadraticBezierTo(center.dx, center.dy, center.dx, center.dy - radius)
       ..close();
+  }
+
+  /// Only treats touches near a rendered star as hits. Returning `false`
+  /// anywhere else lets the enclosing `GestureDetector` (with
+  /// `HitTestBehavior.deferToChild`) drop the event so the parent
+  /// `InteractiveViewer` can pan/zoom on the empty canvas.
+  @override
+  bool? hitTest(Offset position) {
+    return starAt(
+          stars,
+          canvasSize,
+          position,
+          animationValue: animationValue,
+          panOffset: panOffset,
+        ) !=
+        null;
   }
 
   @override
