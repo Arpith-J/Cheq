@@ -1,49 +1,51 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/stats_model.dart';
-import 'planner_provider.dart';
+import 'rewards_provider.dart';
 
 final statsProvider = Provider<StatsModel>((ref) {
-  final asyncTasks = ref.watch(firestorePlannerStreamProvider);
-  final allTasks = asyncTasks.value ?? [];
+  final asyncUser = ref.watch(userStreamProvider);
+  final user = asyncUser.value;
+
+  final dailyMinutesLog = user?.dailyMinutesLog ?? const <String, int>{};
+  final categoryMinutes = user?.categoryMinutes ?? const <String, int>{};
 
   final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final sevenDaysAgo = today.subtract(const Duration(days: 6));
+  final todayMidnight = DateTime(now.year, now.month, now.day);
+  final sevenDaysAgo = todayMidnight.subtract(const Duration(days: 6));
 
+  // Last 7 days, normalized to midnight (00:00:00) for the X-axis of the
+  // weekly bar chart.
   final hoursPerDayThisWeek = <DateTime, double>{};
   for (int i = 0; i < 7; i++) {
     hoursPerDayThisWeek[sevenDaysAgo.add(Duration(days: i))] = 0.0;
   }
 
-  double totalHoursAllTime = 0.0;
-  final hoursByCategory = <String, double>{};
-  final heatmapHours = <DateTime, double>{};
-
-  for (final task in allTasks) {
-    if (!task.isDone) continue;
-
-    final hours = _calculateSafeMinutes(task.startTime, task.endTime) / 60.0;
-    totalHoursAllTime += hours;
-
-    final category = task.categoryName ?? 'Uncategorized';
-    hoursByCategory.update(category, (v) => v + hours, ifAbsent: () => hours);
-
-    final taskDay = DateTime(
-      task.startTime.year,
-      task.startTime.month,
-      task.startTime.day,
-    );
-    if (hoursPerDayThisWeek.containsKey(taskDay)) {
-      hoursPerDayThisWeek[taskDay] = hoursPerDayThisWeek[taskDay]! + hours;
-    }
-
-    heatmapHours.update(taskDay, (v) => v + hours, ifAbsent: () => hours);
+  // Banked minutes per day live on the user document, so the weekly chart
+  // survives the automatic cleanup of old completed task documents.
+  for (final entry in dailyMinutesLog.entries) {
+    final taskMidnight = _parseDateKey(entry.key);
+    if (taskMidnight == null) continue;
+    if (!hoursPerDayThisWeek.containsKey(taskMidnight)) continue;
+    hoursPerDayThisWeek[taskMidnight] =
+        hoursPerDayThisWeek[taskMidnight]! + entry.value / 60.0;
   }
 
-  final heatmapDatasets = heatmapHours.map((date, hours) {
-    final intensity = hours.round().clamp(1, 4);
-    return MapEntry(date, intensity);
-  });
+  // Lifetime totals and category breakdown come straight from the permanent
+  // user ledgers instead of querying raw completed task documents.
+  final totalHoursAllTime = (user?.totalMinutesLogged ?? 0) / 60.0;
+
+  final hoursByCategory = categoryMinutes.map(
+    (name, minutes) => MapEntry(name, minutes / 60.0),
+  );
+
+  final heatmapDatasets = <DateTime, int>{};
+  for (final entry in dailyMinutesLog.entries) {
+    final day = _parseDateKey(entry.key);
+    if (day == null || entry.value <= 0) continue;
+    final intensity = entry.value.round().clamp(1, 4);
+    heatmapDatasets[day] =
+        (heatmapDatasets[day] ?? 0) + intensity;
+  }
 
   return StatsModel(
     totalHoursAllTime: totalHoursAllTime,
@@ -53,10 +55,13 @@ final statsProvider = Provider<StatsModel>((ref) {
   );
 });
 
-int _calculateSafeMinutes(DateTime startTime, DateTime endTime) {
-  DateTime safeEndTime = endTime.isBefore(startTime)
-      ? endTime.add(const Duration(days: 1))
-      : endTime;
-  int rawMinutes = safeEndTime.difference(startTime).inMinutes;
-  return rawMinutes < 0 ? 0 : rawMinutes;
+/// Parses a 'YYYY-MM-DD' ledger key back into a midnight-normalized DateTime.
+DateTime? _parseDateKey(String key) {
+  final parts = key.split('-');
+  if (parts.length != 3) return null;
+  final y = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  final d = int.tryParse(parts[2]);
+  if (y == null || m == null || d == null) return null;
+  return DateTime(y, m, d);
 }

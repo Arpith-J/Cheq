@@ -162,8 +162,8 @@ class RewardsNotifier extends Notifier<UserModel> {
   /// The exact reward is persisted onto the task (`coinsAwarded`) BEFORE the
   /// user's balance is updated so it can be precisely revoked on uncheck.
   /// The task's real duration is banked into `totalMinutesLogged` and the
-  /// permanent stats ledger (`categoryMinutes` + `dailyActivityLog`) so the
-  /// lifetime stats survive task deletion.
+  /// permanent stats ledgers (`categoryMinutes` + `dailyActivityLog` +
+  /// `dailyMinutesLog`) so the lifetime stats survive task deletion.
   Future<void> awardPlannerTaskCompletion(PlannerModel entry) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -191,6 +191,7 @@ class RewardsNotifier extends Notifier<UserModel> {
       minutesDelta: minutes,
       categoryMinuteDeltas: {category: minutes},
       dailyActivityDeltas: {today: 1},
+      dailyMinuteDeltas: {_dateKey(entry.startTime): minutes},
     );
   }
 
@@ -328,6 +329,7 @@ class RewardsNotifier extends Notifier<UserModel> {
       minutesDelta: -minutes,
       categoryMinuteDeltas: {category: -minutes},
       dailyActivityDeltas: {today: -1},
+      dailyMinuteDeltas: {_dateKey(entry.startTime): -minutes},
     );
   }
 
@@ -628,6 +630,7 @@ class RewardsNotifier extends Notifier<UserModel> {
     int minutesDelta = 0,
     Map<String, int> categoryMinuteDeltas = const {},
     Map<String, int> dailyActivityDeltas = const {},
+    Map<String, int> dailyMinuteDeltas = const {},
   }) async {
     if (uid == null) return;
 
@@ -647,6 +650,10 @@ class RewardsNotifier extends Notifier<UserModel> {
       }
       for (final entry in dailyActivityDeltas.entries) {
         updates['dailyActivityLog.${entry.key}'] =
+            FieldValue.increment(entry.value);
+      }
+      for (final entry in dailyMinuteDeltas.entries) {
+        updates['dailyMinutesLog.${entry.key}'] =
             FieldValue.increment(entry.value);
       }
       for (final badge in badges) {

@@ -26,6 +26,11 @@ class UserModel {
   /// string so deleting old tasks never wipes the activity heatmap.
   final Map<String, int> dailyActivityLog;
 
+  /// Total completed minutes logged per day, banked forever. Keyed by a
+  /// 'YYYY-MM-DD' string so deleting old tasks never wipes the weekly hours
+  /// bar chart.
+  final Map<String, int> dailyMinutesLog;
+
   const UserModel({
     required this.uid,
     required this.displayName,
@@ -44,6 +49,7 @@ class UserModel {
     this.constellation = const [],
     this.categoryMinutes = const {},
     this.dailyActivityLog = const {},
+    this.dailyMinutesLog = const {},
   });
 
   UserModel copyWith({
@@ -64,6 +70,7 @@ class UserModel {
     List<StarModel>? constellation,
     Map<String, int>? categoryMinutes,
     Map<String, int>? dailyActivityLog,
+    Map<String, int>? dailyMinutesLog,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -83,6 +90,7 @@ class UserModel {
       constellation: constellation ?? this.constellation,
       categoryMinutes: categoryMinutes ?? this.categoryMinutes,
       dailyActivityLog: dailyActivityLog ?? this.dailyActivityLog,
+      dailyMinutesLog: dailyMinutesLog ?? this.dailyMinutesLog,
     );
   }
 
@@ -107,6 +115,7 @@ class UserModel {
         'constellation': constellation.map((s) => s.toMap()).toList(),
         'categoryMinutes': categoryMinutes,
         'dailyActivityLog': dailyActivityLog,
+        'dailyMinutesLog': dailyMinutesLog,
       };
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -134,6 +143,7 @@ class UserModel {
             .toList(),
         categoryMinutes: _parseIntMap(map['categoryMinutes']),
         dailyActivityLog: _parseIntMap(map['dailyActivityLog']),
+        dailyMinutesLog: _parseIntMap(map['dailyMinutesLog']),
       );
 
   static Map<String, int> _parseIntMap(dynamic value) {
