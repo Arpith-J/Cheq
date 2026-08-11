@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../providers/auth_provider.dart';
 import 'main_scaffold.dart'; // ← moved to top with other imports
 
 // ---------------------------------------------------------------------------
@@ -13,10 +14,6 @@ import 'main_scaffold.dart'; // ← moved to top with other imports
 // ---------------------------------------------------------------------------
 
 const String appName = String.fromEnvironment('app_name', defaultValue: 'Ariadne');
-final authStateProvider = StreamProvider<User?>((ref) {
-  return FirebaseAuth.instance.authStateChanges();
-});
-
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.widget.RemoteViews
 import org.json.JSONArray
+import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 
 class PlannerWidgetProvider : HomeWidgetProvider() {
@@ -17,6 +18,11 @@ class PlannerWidgetProvider : HomeWidgetProvider() {
     private val WIDGET_DATA_KEY = "widget_data_planner"
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_MARK_DONE) {
+            forwardMarkDoneToBackground(context, intent)
+            return
+        }
+
         val actionType = intent.getStringExtra("action")
         
         when (actionType) {
@@ -38,6 +44,27 @@ class PlannerWidgetProvider : HomeWidgetProvider() {
         }
         
         super.onReceive(context, intent)
+    }
+
+    private fun forwardMarkDoneToBackground(context: Context, intent: Intent) {
+        val uri = intent.data ?: run {
+            val taskId = intent.getStringExtra("taskId")
+            val uid = intent.getStringExtra("uid")
+            if (taskId == null || uid == null) return
+            Uri.Builder()
+                .scheme(WIDGET_BACKGROUND_SCHEME)
+                .authority(WIDGET_BACKGROUND_HOST)
+                .appendQueryParameter("taskId", taskId)
+                .appendQueryParameter("uid", uid)
+                .build()
+        }
+        try {
+            // Hands off to the plugin's background receiver, which spins up a
+            // Dart isolate and runs the registered `backgroundCallback`.
+            HomeWidgetBackgroundIntent.getBroadcast(context, uri).send()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun toggleTaskState(context: Context, position: Int) {

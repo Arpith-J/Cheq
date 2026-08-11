@@ -1,15 +1,44 @@
 // lib/services/notification_service.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'firestore_service.dart';
 
 @pragma('vm:entry-point')
-void notificationTapBackground(NotificationResponse response) {
-  // No-op: the OS re-launches the app on notification tap.
-  // This function exists solely to prevent tree-shaking of the
-  // flutter_local_notifications plugin in release builds.
+Future<void> notificationTapBackground(NotificationResponse response) async {
+  // Only the "Mark as complete" action needs background handling. A plain tap
+  // on the notification (actionId == null) re-launches the app normally.
+  if (response.actionId != 'mark_done') return;
+
+  final payload = response.payload;
+  if (payload == null || payload.isEmpty) return;
+
+  try {
+    final data = jsonDecode(payload) as Map<String, dynamic>;
+    final taskId = data['taskId'] as String?;
+    final uid = data['uid'] as String?;
+    if (taskId == null || taskId.isEmpty || uid == null || uid.isEmpty) return;
+
+    // 1. IMMEDIATELY dismiss the notification from the Android status bar.
+    //    This happens before any Firestore work so the banner disappears even
+    //    if the network is slow or the database update later fails. The stable
+    //    id is derived the same way as everywhere else in the codebase
+    //    (see FirestoreService.saveTasksBatch/deleteTask).
+    final rawDigits = taskId.replaceAll(RegExp(r'[^0-9]'), '');
+    final parsedInt = int.tryParse(rawDigits);
+    final int stableNotificationId =
+        parsedInt != null ? (parsedInt % 2147483647) : taskId.hashCode;
+    await NotificationService.instance.cancelNotification(stableNotificationId);
+
+    // 2. Complete the task in Firestore (coins, permanent ledgers, isDone)
+    //    and refresh the home screen widgets.
+    await completeTaskFromBackground(taskId, uid);
+  } catch (e) {
+    debugPrint("Notification background action failed: $e");
+  }
 }
 
 class NotificationService {
@@ -41,6 +70,7 @@ class NotificationService {
     }
 
     await _plugin.initialize(
+      onDidReceiveNotificationResponse: notificationTapBackground,
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_stat_notification'), // Ensure this exists
@@ -61,6 +91,7 @@ class NotificationService {
     required String title,
     required String body,
     required DateTime scheduledTime,
+    String? payload,
   }) async {
     if (!_initialized) await initialize();
 
@@ -72,6 +103,9 @@ class NotificationService {
         importance: Importance.high,
         priority: Priority.high,
         icon: 'ic_stat_notification',
+        actions: <AndroidNotificationAction>[
+          AndroidNotificationAction('mark_done', 'Mark as complete'),
+        ],
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -84,6 +118,7 @@ class NotificationService {
       id: id,
       title: title,
       body: body,
+      payload: payload,
       scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
       notificationDetails: details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -121,6 +156,9 @@ class NotificationService {
           importance: Importance.high,
           priority: Priority.high,
           icon: 'ic_stat_notification',
+          actions: <AndroidNotificationAction>[
+            AndroidNotificationAction('mark_done', 'Mark as complete'),
+          ],
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -128,7 +166,18 @@ class NotificationService {
     );
   }
 
-  Future<void> cancelNotification(int id) async => await _plugin.cancel(id: id);
+  Future<void> cancelNotification(int id) async {
+    if (_initialized) {
+      await _plugin.cancel(id: id);
+      return;
+    }
+    // Background isolate: this singleton's plugin was never initialized here
+    // (each isolate has its own heap), so use a fresh instance. `cancel()` only
+    // needs the platform channel, which the background callback dispatcher
+    // registers before invoking the entry point.
+    final isolatePlugin = FlutterLocalNotificationsPlugin();
+    await isolatePlugin.cancel(id: id);
+  }
   
   Future<void> cancelBriefing(int id) async => await _plugin.cancel(id: id);
 }
