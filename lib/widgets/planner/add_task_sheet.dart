@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -243,6 +244,10 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
             title: '$appName Reminder', 
             body: entryToSave.title,
             scheduledTime: startDt,
+            payload: jsonEncode({
+              'taskId': entryToSave.id,
+              'uid': FirebaseAuth.instance.currentUser?.uid,
+            }),
           ));
         }
 

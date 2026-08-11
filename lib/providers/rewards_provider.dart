@@ -13,6 +13,7 @@ import '../models/user_model.dart';
 import '../services/firestore_service.dart';
 import '../services/home_widget_service.dart';
 import '../theme/app_themes.dart';
+import 'auth_provider.dart';
 import 'planner_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -115,26 +116,42 @@ WidgetSkinEntry? widgetSkinEntryById(String id) {
 // Live stream of the user's economy document
 // ---------------------------------------------------------------------------
 
+/// Live stream of the user's economy document, reacted to the auth state so it
+/// re-subscribes with the signed-in user the moment a login completes. Without
+/// this, a provider built while `FirebaseAuth.currentUser` was still null (a
+/// fresh install before the session restore finishes) caches an empty
+/// [UserModel] forever and the Trophy Room / stats / constellation stay at 0.
 final userStreamProvider = StreamProvider<UserModel>((ref) {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) {
-    return Stream.value(const UserModel(uid: '', displayName: '', email: ''));
-  }
+  return ref.watch(authStateProvider).when(
+        data: (user) {
+          if (user == null) {
+            return Stream.value(
+              const UserModel(uid: '', displayName: '', email: ''),
+            );
+          }
 
-  return FirebaseFirestore.instance
-      .collection('users')
-      .doc(user.uid)
-      .snapshots()
-      .map((snapshot) {
-        if (!snapshot.exists || snapshot.data() == null) {
-          return UserModel(
-            uid: user.uid,
-            displayName: user.displayName ?? '',
-            email: user.email ?? '',
-          );
-        }
-        return UserModel.fromMap(snapshot.data()!);
-      });
+          return FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .snapshots()
+              .map((snapshot) {
+                if (!snapshot.exists || snapshot.data() == null) {
+                  return UserModel(
+                    uid: user.uid,
+                    displayName: user.displayName ?? '',
+                    email: user.email ?? '',
+                  );
+                }
+                return UserModel.fromMap(snapshot.data()!);
+              });
+        },
+        loading: () => Stream.value(
+          const UserModel(uid: '', displayName: '', email: ''),
+        ),
+        error: (_, __) => Stream.value(
+          const UserModel(uid: '', displayName: '', email: ''),
+        ),
+      );
 });
 
 // ---------------------------------------------------------------------------
@@ -154,6 +171,14 @@ class RewardsNotifier extends Notifier<UserModel> {
       HomeWidgetService.activeWidgetSkin = user.activeWidgetSkin;
     }
     return user;
+  }
+
+  /// Explicitly seeds local state from a freshly fetched cloud [UserModel].
+  /// Invoked on app boot / login so the Trophy Room, coin pill, badges,
+  /// constellation and streaks render the persisted Firestore data immediately
+  /// instead of waiting (or never) on the snapshots stream's first event.
+  void hydrateFromCloud(UserModel model) {
+    state = model;
   }
 
   /// Daily Planner task completion.

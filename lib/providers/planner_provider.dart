@@ -1,11 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/planner_model.dart';
 import '../services/firestore_service.dart';
+import 'auth_provider.dart';
 import 'task_settings_provider.dart';
 
-final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>((ref) {
-  return FirestoreService.instance.streamPlannerEntries();
-});
+/// Live planner stream, reacted to the auth state. On a fresh install the
+/// FirebaseAuth session restores asynchronously; without this dependency a
+/// provider built while `currentUser` was null caches an empty planner list
+/// forever and the Planner UI never hydrates after login.
+final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>(
+  (ref) {
+    return ref.watch(authStateProvider).when(
+          data: (user) => user == null
+              ? Stream.value(const <PlannerModel>[])
+              : FirestoreService.instance.streamPlannerEntries(user.uid),
+          loading: () => Stream.value(const <PlannerModel>[]),
+          error: (_, __) => Stream.value(const <PlannerModel>[]),
+        );
+  },
+);
 
 class PlannerNotifier extends Notifier<List<PlannerModel>> {
   @override

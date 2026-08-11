@@ -10,6 +10,8 @@ import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'rewards_screen.dart';
 import '../providers/coins_provider.dart';
+import '../providers/rewards_provider.dart';
+import '../services/firestore_service.dart';
 import '../widgets/app_side_drawer.dart';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,46 @@ class MainScaffold extends ConsumerStatefulWidget {
 
 class _MainScaffoldState extends ConsumerState<MainScaffold> {
   int _selectedIndex = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    // Frame-dependent: reading/invalidating Riverpod providers is not allowed
+    // synchronously inside build(), so hydration runs right after the first
+    // frame instead.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _hydrateCloudData());
+  }
+
+  /// Explicitly fetches the user's `users/{uid}` document from Firestore and
+  /// hydrates the local economy/stats/badge providers with the cloud data.
+  ///
+  /// On a fresh install the FirebaseAuth session restores asynchronously, so
+  /// the stream providers may have been built with a null user and cached a
+  /// permanent 0/empty value. This seeds `rewardsProvider` from the fetched
+  /// [UserModel] and forces `coinsProvider` + `userStreamProvider` to
+  /// re-subscribe keyed to the signed-in user BEFORE the Trophy Room, Stats
+  /// and Planner UI settle on their first render.
+  Future<void> _hydrateCloudData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // 1. Force the live streams to (re)subscribe with the signed-in user.
+      ref.invalidate(coinsProvider);
+      ref.invalidate(userStreamProvider);
+
+      // 2. Explicit one-shot fetch of the cloud UserModel document.
+      final cloudModel =
+          await FirestoreService.instance.getUserModel(user.uid);
+      if (cloudModel == null) return;
+
+      // 3. Seed the coins/badges/constellation/streak notifier immediately so
+      //    no screen ever renders a stale zero before the stream catches up.
+      ref.read(rewardsProvider.notifier).hydrateFromCloud(cloudModel);
+    } catch (e) {
+      debugPrint('Cloud data hydration failed: $e');
+    }
+  }
 
   // IndexedStack children — never re-instantiated on tab switch
   static const List<Widget> _screens = [
