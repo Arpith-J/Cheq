@@ -428,7 +428,11 @@ class FirestoreService {
             title: '$appName Reminder',
             body: task.title,
             scheduledTime: task.startTime,
-            payload: jsonEncode({'taskId': task.id, 'uid': _auth.currentUser?.uid}),
+            payload: jsonEncode({
+              'taskId': task.id,
+              'uid': _auth.currentUser?.uid,
+              'notificationId': stableId,
+            }),
           ));
         }
       }
@@ -473,7 +477,11 @@ class FirestoreService {
             title: '$appName Reminder',
             body: task.title,
             scheduledTime: task.startTime,
-            payload: jsonEncode({'taskId': task.id, 'uid': _auth.currentUser?.uid}),
+            payload: jsonEncode({
+              'taskId': task.id,
+              'uid': _auth.currentUser?.uid,
+              'notificationId': stableId,
+            }),
           ));
         }
       }
@@ -583,6 +591,108 @@ class FirestoreService {
         .doc(categoryId)
         .delete();
   }
+
+  /// Completes a planner task exactly like the in-app checkbox: persists
+  /// `isDone`/`isRewarded`/`coinsAwarded`, awards the coin reward (+ deep-work
+  /// bonus when the task runs >= 2 hours), unlocks badges (Night Owl when it
+  /// ends at/after 10 PM), and banks the real duration into the permanent stats
+  /// ledgers on the `UserModel` document. Safe to call from a background
+  /// isolate: Firebase is initialized on demand and the widget refresh is
+  /// keyed off the explicit [uid].
+  static Future<void> completeTaskFromBackground(
+    String taskId,
+    String uid,
+  ) async {
+    if (taskId.isEmpty || uid.isEmpty) return;
+
+    // A background isolate has its own Dart heap, so Firebase.apps is always
+    // empty here. Initialize (and await) BEFORE any Firestore call is made.
+    if (!await _ensureBackgroundFirebase()) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final taskRef = db
+          .collection('users')
+          .doc(uid)
+          .collection('planner')
+          .doc(taskId);
+
+      final taskSnap = await taskRef.get();
+      if (!taskSnap.exists) return;
+
+      final data = taskSnap.data();
+      if (data == null || data['isDone'] == true) return;
+
+      final startTime = DateTime.parse(data['startTime'] as String);
+      final endTime = DateTime.parse(data['endTime'] as String);
+
+      final minutes = _safeTaskMinutes(startTime, endTime);
+      final category = (data['categoryName'] as String?) ?? 'Uncategorized';
+
+      final reward =
+          plannerBaseCoins + (minutes >= 120 ? plannerDeepWorkBonusCoins : 0);
+      final badges = <String>[
+        if (endTime.hour >= 22) nightOwlBadge,
+      ];
+
+      // Atomic: the task flips to done at the same instant the user's economy
+      // and permanent stats ledgers are incremented.
+      final batch = db.batch();
+      batch.update(taskRef, {
+        'isDone': true,
+        'isRewarded': true,
+        'coinsAwarded': reward,
+      });
+
+      batch.update(db.collection('users').doc(uid), {
+        'coins': FieldValue.increment(reward),
+        'totalMinutesLogged': FieldValue.increment(minutes),
+        'categoryMinutes.$category': FieldValue.increment(minutes),
+        'dailyMinutesLog.${_ledgerDateKey(startTime)}':
+            FieldValue.increment(minutes),
+        'dailyActivityLog.${_ledgerDateKey(DateTime.now())}':
+            FieldValue.increment(1),
+        if (badges.isNotEmpty) 'unlockedBadges': FieldValue.arrayUnion(badges),
+      });
+
+      await batch.commit();
+      debugPrint(
+          "Background completion: $taskId (+$reward coins, +$minutes min)");
+
+      // Mirror the in-app checkbox flow (`task_row.dart` ->
+      // `checkAndAwardPerfectDay`): when every task on the day is now done,
+      // award the +50 Perfect Day bonus and bump the streak.
+      await _maybeAwardPerfectDay(db, uid);
+
+      // Explicitly trigger the Android widget update channel so the completed
+      // task is instantly removed from the home screen. The datasets are rebuilt
+      // from Firestore (not the pre-commit cache) so `isDone: true` is already
+      // reflected before the SharedPreferences payloads are written.
+      try {
+        final snapshot = await db
+            .collection('users')
+            .doc(uid)
+            .collection('planner')
+            .get();
+        final allTasks = snapshot.docs
+            .map((doc) => PlannerModel.fromMap(doc.data()))
+            .toList();
+
+        // `_pushAllWidgetData` writes every dataset via HomeWidget.saveWidgetData
+        // and calls HomeWidget.updateWidget for all three providers, then a final
+        // direct channel trigger guarantees the primary task widget repaints.
+        await instance._pushAllWidgetData(allTasks, uid: uid);
+        await HomeWidget.updateWidget(
+          name: 'DailyTaskWidgetProvider',
+          androidName: 'DailyTaskWidgetProvider',
+        );
+      } catch (e) {
+        debugPrint("Background widget refresh failed: $e");
+      }
+    } catch (e) {
+      debugPrint("Background completion failed for $taskId: $e");
+    }
+  }
 }
 
 // ── UNIFIED BACKGROUND COMPLETION ENGINE ────────────────────────────────
@@ -600,105 +710,7 @@ Future<void> backgroundCallback(Uri? uri) async {
   final uid = uri.queryParameters['uid'];
   if (taskId == null || taskId.isEmpty || uid == null || uid.isEmpty) return;
 
-  await completeTaskFromBackground(taskId, uid);
-}
-
-/// Completes a planner task exactly like the in-app checkbox: persists
-/// `isDone`/`isRewarded`/`coinsAwarded`, awards the coin reward (+ deep-work
-/// bonus when the task runs >= 2 hours), unlocks badges (Night Owl when it
-/// ends at/after 10 PM), and banks the real duration into the permanent stats
-/// ledgers. Safe to call from a background isolate: Firebase is initialized on
-/// demand and the widget refresh is keyed off the explicit [uid].
-Future<void> completeTaskFromBackground(String taskId, String uid) async {
-  if (taskId.isEmpty || uid.isEmpty) return;
-
-  // A background isolate has its own Dart heap, so Firebase.apps is always
-  // empty here. Initialize (and await) BEFORE any Firestore call is made.
-  if (!await _ensureBackgroundFirebase()) return;
-
-  try {
-    final db = FirebaseFirestore.instance;
-    final taskRef = db
-        .collection('users')
-        .doc(uid)
-        .collection('planner')
-        .doc(taskId);
-
-    final taskSnap = await taskRef.get();
-    if (!taskSnap.exists) return;
-
-    final data = taskSnap.data();
-    if (data == null || data['isDone'] == true) return;
-
-    final startTime = DateTime.parse(data['startTime'] as String);
-    final endTime = DateTime.parse(data['endTime'] as String);
-
-    final minutes = _safeTaskMinutes(startTime, endTime);
-    final category = (data['categoryName'] as String?) ?? 'Uncategorized';
-
-    final reward =
-        plannerBaseCoins + (minutes >= 120 ? plannerDeepWorkBonusCoins : 0);
-    final badges = <String>[
-      if (endTime.hour >= 22) nightOwlBadge,
-    ];
-
-    // Atomic: the task flips to done at the same instant the user's economy
-    // and permanent stats ledgers are incremented.
-    final batch = db.batch();
-    batch.update(taskRef, {
-      'isDone': true,
-      'isRewarded': true,
-      'coinsAwarded': reward,
-    });
-
-    batch.update(db.collection('users').doc(uid), {
-      'coins': FieldValue.increment(reward),
-      'totalMinutesLogged': FieldValue.increment(minutes),
-      'categoryMinutes.$category': FieldValue.increment(minutes),
-      'dailyMinutesLog.${_ledgerDateKey(startTime)}':
-          FieldValue.increment(minutes),
-      'dailyActivityLog.${_ledgerDateKey(DateTime.now())}':
-          FieldValue.increment(1),
-      if (badges.isNotEmpty) 'unlockedBadges': FieldValue.arrayUnion(badges),
-    });
-
-    await batch.commit();
-    debugPrint(
-        "Background completion: $taskId (+$reward coins, +$minutes min)");
-
-    // Mirror the in-app checkbox flow (`task_row.dart` ->
-    // `checkAndAwardPerfectDay`): when every task on the day is now done,
-    // award the +50 Perfect Day bonus and bump the streak.
-    await _maybeAwardPerfectDay(db, uid);
-
-    // Explicitly trigger the Android widget update channel so the completed
-    // task is instantly removed from the home screen. The datasets are rebuilt
-    // from Firestore (not the pre-commit cache) so `isDone: true` is already
-    // reflected before the SharedPreferences payloads are written.
-    try {
-      final snapshot = await db
-          .collection('users')
-          .doc(uid)
-          .collection('planner')
-          .get();
-      final allTasks = snapshot.docs
-          .map((doc) => PlannerModel.fromMap(doc.data()))
-          .toList();
-
-      // `_pushAllWidgetData` writes every dataset via HomeWidget.saveWidgetData
-      // and calls HomeWidget.updateWidget for all three providers, then a final
-      // direct channel trigger guarantees the primary task widget repaints.
-      await FirestoreService.instance._pushAllWidgetData(allTasks, uid: uid);
-      await HomeWidget.updateWidget(
-        name: 'DailyTaskWidgetProvider',
-        androidName: 'DailyTaskWidgetProvider',
-      );
-    } catch (e) {
-      debugPrint("Background widget refresh failed: $e");
-    }
-  } catch (e) {
-    debugPrint("Background completion failed for $taskId: $e");
-  }
+  await FirestoreService.completeTaskFromBackground(taskId, uid);
 }
 
 /// Initializes Firebase in a background isolate on demand. Each isolate owns a
