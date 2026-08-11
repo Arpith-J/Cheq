@@ -24,21 +24,34 @@ Future<void> notificationTapBackground(NotificationResponse response) async {
 
     // 1. IMMEDIATELY dismiss the notification from the Android status bar.
     //    This happens before any Firestore work so the banner disappears even
-    //    if the network is slow or the database update later fails. The stable
-    //    id is derived the same way as everywhere else in the codebase
-    //    (see FirestoreService.saveTasksBatch/deleteTask).
-    final rawDigits = taskId.replaceAll(RegExp(r'[^0-9]'), '');
-    final parsedInt = int.tryParse(rawDigits);
-    final int stableNotificationId =
-        parsedInt != null ? (parsedInt % 2147483647) : taskId.hashCode;
-    await NotificationService.instance.cancelNotification(stableNotificationId);
+    //    if the network is slow or the database update later fails. Prefers the
+    //    explicit `notificationId` baked into the payload, falling back to the
+    //    stable id derived from the task id for notifications scheduled before
+    //    the field was added (see FirestoreService.saveTasksBatch/deleteTask).
+    //
+    //    NOTE: the singleton's `_plugin` was never initialized in this isolate
+    //    (each isolate owns its own heap), so cancellation goes through
+    //    `cancelNotification`, which spins up a fresh plugin instance for the
+    //    background callback dispatcher's platform channel.
+    final int notificationId = (data['notificationId'] as num?)?.toInt() ??
+        stableNotificationIdFromTask(taskId);
+    await NotificationService.instance.cancelNotification(notificationId);
 
     // 2. Complete the task in Firestore (coins, permanent ledgers, isDone)
     //    and refresh the home screen widgets.
-    await completeTaskFromBackground(taskId, uid);
+    await FirestoreService.completeTaskFromBackground(taskId, uid);
   } catch (e) {
     debugPrint("Notification background action failed: $e");
   }
+}
+
+/// Derives the stable notification id for a planner task, matching the exact
+/// derivation used when the notification is scheduled (add_task_sheet.dart and
+/// FirestoreService.saveTasksBatch/saveAndCleanTasksBatch).
+int stableNotificationIdFromTask(String taskId) {
+  final rawDigits = taskId.replaceAll(RegExp(r'[^0-9]'), '');
+  final parsedInt = int.tryParse(rawDigits);
+  return parsedInt != null ? (parsedInt % 2147483647) : taskId.hashCode;
 }
 
 class NotificationService {

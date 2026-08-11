@@ -247,6 +247,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
             payload: jsonEncode({
               'taskId': entryToSave.id,
               'uid': FirebaseAuth.instance.currentUser?.uid,
+              'notificationId': stableNotificationId,
             }),
           ));
         }
