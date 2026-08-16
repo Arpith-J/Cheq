@@ -690,6 +690,126 @@ class FirestoreService {
     });
   }
 
+  // --- GROUP MEMBER PROFILES ---
+
+  /// Resolves member UIDs to human-readable display names for the 'Assign To'
+  /// picker. Firestore offers no cross-document joins, so each member's
+  /// `users/{uid}` profile is read individually; members without a profile
+  /// document degrade gracefully to a short UID prefix.
+  Future<Map<String, String>> fetchUserDisplayNames(List<String> uids) async {
+    final names = <String, String>{};
+    for (final uid in uids.where((u) => u.isNotEmpty).toSet()) {
+      try {
+        final snap = await _db.collection('users').doc(uid).get();
+        final data = snap.data();
+        final name = data?['displayName'];
+        names[uid] = (name is String && name.trim().isNotEmpty)
+            ? name
+            : _shortUid(uid);
+      } catch (e) {
+        debugPrint("Failed to load user profile for $uid: $e");
+        names[uid] = _shortUid(uid);
+      }
+    }
+    return names;
+  }
+
+  static String _shortUid(String uid) =>
+      uid.length <= 6 ? uid : uid.substring(0, 6);
+
+  // --- GROUP TO-DO METHODS ---
+
+  /// Live stream of the shared to-do checklist stored under
+  /// `spaces/{spaceId}/tasks`, ordered newest-first by creation time so members
+  /// on every device see the exact same collaborative list.
+  Stream<List<PlannerModel>> streamGroupTasks(String spaceId) {
+    if (spaceId.isEmpty) return Stream.value(const []);
+    return _db
+        .collection('spaces')
+        .doc(spaceId)
+        .collection('tasks')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => PlannerModel.fromMap(doc.data()))
+            .toList());
+  }
+
+  /// Saves or updates a shared task inside `spaces/{spaceId}/tasks`. New tasks
+  /// receive a `createdAt` stamp (falling back to now when the model omits one)
+  /// so the checklist streams in a stable creation order.
+  Future<void> saveGroupTask(String spaceId, PlannerModel task) async {
+    if (spaceId.isEmpty) return;
+    try {
+      final data = task.toMap();
+      if (data['createdAt'] == null) {
+        data['createdAt'] = DateTime.now().toIso8601String();
+      }
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('tasks')
+          .doc(task.id)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to save group task to Firestore: $e");
+    }
+  }
+
+  /// Removes a shared task from `spaces/{spaceId}/tasks`.
+  Future<void> deleteGroupTask(String spaceId, String taskId) async {
+    if (spaceId.isEmpty) return;
+    try {
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('tasks')
+          .doc(taskId)
+          .delete();
+    } catch (e) {
+      debugPrint("Failed to delete group task from Firestore: $e");
+    }
+  }
+
+  /// Toggles a shared task's completion and applies the personal coin economy
+  /// in a single atomic WriteBatch:
+  ///  - flips `isDone` on `spaces/{spaceId}/tasks/{taskId}`;
+  ///  - when marking done, awards the standard per-item reward
+  ///    ([todoItemCoins] = +5) to the tapping user's `coins` field on
+  ///    `users/{uid}`;
+  ///  - when unchecking, decrements the exact same amount so the reward can
+  ///    never be farmed by toggling repeatedly.
+  Future<void> toggleGroupTaskCompletion({
+    required String spaceId,
+    required PlannerModel task,
+    required String uid,
+  }) async {
+    if (spaceId.isEmpty || uid.isEmpty) return;
+
+    try {
+      final batch = _db.batch();
+      final taskRef = _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('tasks')
+          .doc(task.id);
+
+      final coinDelta = task.isDone ? -todoItemCoins : todoItemCoins;
+
+      batch.update(taskRef, {'isDone': !task.isDone});
+      batch.update(_userDocRef(uid), {
+        'coins': FieldValue.increment(coinDelta),
+      });
+
+      await batch.commit();
+      debugPrint(
+          "Group task ${task.id} ${task.isDone ? 'unchecked' : 'checked'} "
+          "($coinDelta coins for $uid)");
+    } catch (e) {
+      debugPrint("Failed to toggle group task completion: $e");
+    }
+  }
+
   /// Generates a 6-character uppercase alphanumeric room code that does not
   /// collide with any existing Space.
   Future<String> _generateUniqueRoomCode() async {

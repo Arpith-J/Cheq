@@ -17,6 +17,7 @@ class PlannerModel {
   final int? categoryColor;
   final String? groupId; // Group the task belongs to (null = personal/private)
   final String? assignedTo; // User UID this task is assigned to (null = creator)
+  final DateTime? createdAt; // When the task was added (used to order group tasks)
 
   const PlannerModel({
     required this.id,
@@ -35,6 +36,7 @@ class PlannerModel {
     this.categoryColor,
     this.groupId,
     this.assignedTo,
+    this.createdAt,
   });
 
   PlannerModel copyWith({
@@ -54,6 +56,7 @@ class PlannerModel {
     int? categoryColor,
     String? groupId,
     String? assignedTo,
+    DateTime? createdAt,
   }) {
     return PlannerModel(
       id: id ?? this.id,
@@ -72,6 +75,7 @@ class PlannerModel {
       categoryColor: categoryColor ?? this.categoryColor,
       groupId: groupId ?? this.groupId,
       assignedTo: assignedTo ?? this.assignedTo,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 
@@ -93,6 +97,7 @@ class PlannerModel {
       'categoryColor': categoryColor,
       'groupId': groupId,
       'assignedTo': assignedTo,
+      'createdAt': createdAt?.toIso8601String(),
     };
   }
 
@@ -119,6 +124,13 @@ class PlannerModel {
       categoryColor: map['categoryColor'] as int?,
       groupId: map['groupId'] as String?,
       assignedTo: map['assignedTo'] as String?,
+      createdAt: _parseDate(map['createdAt']),
     );
+  }
+
+  static DateTime? _parseDate(dynamic value) {
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 }
