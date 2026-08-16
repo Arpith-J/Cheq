@@ -6,6 +6,8 @@ import '../screens/main_scaffold.dart'; // To access the ProfileAvatar widget
 import '../screens/settings_screen.dart';
 import '../screens/stats_screen.dart';
 import '../screens/trophy_room_screen.dart';
+import '../screens/bundles_screen.dart';
+import '../screens/constellation_screen.dart';
 
 const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'Cheq');
 class AppSideDrawer extends ConsumerWidget {
@@ -43,6 +45,7 @@ class AppSideDrawer extends ConsumerWidget {
                     style: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
                   ),
                 ),
+                // ── Settings ──────────────────────────────────────────────
                 ListTile(
                   leading: Icon(Icons.settings_rounded, color: cs.primary),
                   title: const Text(
@@ -86,6 +89,54 @@ class AppSideDrawer extends ConsumerWidget {
                       MaterialPageRoute(builder: (_) => const StatsScreen()),
                     );
                   },
+                ),
+                // ── Rewards dropdown (Bundles + Constellation) ────────────
+                ExpansionTile(
+                  leading: Icon(Icons.redeem_rounded, color: cs.primary),
+                  iconColor: cs.primary,
+                  collapsedIconColor: cs.primary,
+                  title: const Text(
+                    "Rewards",
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  shape: const Border(),
+                  collapsedShape: const Border(),
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  children: [
+                    ListTile(
+                      leading: Icon(Icons.palette_outlined, color: cs.primary),
+                      title: const Text(
+                        "Bundles",
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text("Theme packs"),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const BundlesScreen()),
+                        );
+                      },
+                    ),
+                    ListTile(
+                      leading: Icon(Icons.auto_awesome, color: cs.primary),
+                      title: const Text(
+                        "Constellation",
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text("Star data core"),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const ConstellationScreen()),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),

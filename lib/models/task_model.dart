@@ -3,7 +3,8 @@ class TaskModel {
   final String title;
   final bool isCompleted;
   final DateTime dueDate;
-  final String? groupId; // Reserved for future group/category feature
+  final String? groupId; // Group the task belongs to (null = personal/private)
+  final String? assignedTo; // User UID this task is assigned to (null = creator)
 
   const TaskModel({
     required this.id,
@@ -11,6 +12,7 @@ class TaskModel {
     required this.dueDate,
     this.isCompleted = false,
     this.groupId,
+    this.assignedTo,
   });
 
   TaskModel copyWith({
@@ -19,6 +21,7 @@ class TaskModel {
     bool? isCompleted,
     DateTime? dueDate,
     String? groupId,
+    String? assignedTo,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -26,6 +29,7 @@ class TaskModel {
       isCompleted: isCompleted ?? this.isCompleted,
       dueDate: dueDate ?? this.dueDate,
       groupId: groupId ?? this.groupId,
+      assignedTo: assignedTo ?? this.assignedTo,
     );
   }
 
@@ -35,6 +39,7 @@ class TaskModel {
         'isCompleted': isCompleted,
         'dueDate': dueDate.toIso8601String(),
         'groupId': groupId,
+        'assignedTo': assignedTo,
       };
 
   factory TaskModel.fromMap(Map<String, dynamic> map) => TaskModel(
@@ -43,5 +48,6 @@ class TaskModel {
         isCompleted: (map['isCompleted'] as bool?) ?? false,
         dueDate: DateTime.parse(map['dueDate'] as String),
         groupId: map['groupId'] as String?,
+        assignedTo: map['assignedTo'] as String?,
       );
 }

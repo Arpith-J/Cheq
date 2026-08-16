@@ -13,27 +13,35 @@ class TodoItem {
   final String id;
   final String text;
   final bool isDone;
+  final String? groupId; // Group the item belongs to (null = personal/private)
+  final String? assignedTo; // User UID this item is assigned to (null = creator)
 
   const TodoItem({
     required this.id,
     required this.text,
     required this.isDone,
+    this.groupId,
+    this.assignedTo,
   });
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'text': text,
         'isDone': isDone,
+        'groupId': groupId,
+        'assignedTo': assignedTo,
       };
 
   factory TodoItem.fromMap(Map<String, dynamic> map) => TodoItem(
         id: map['id'] as String,
         text: map['text'] as String,
         isDone: (map['isDone'] as bool?) ?? false,
+        groupId: map['groupId'] as String?,
+        assignedTo: map['assignedTo'] as String?,
       );
 
   TodoItem copyWith({bool? isDone}) =>
-      TodoItem(id: id, text: text, isDone: isDone ?? this.isDone);
+      TodoItem(id: id, text: text, isDone: isDone ?? this.isDone, groupId: groupId, assignedTo: assignedTo);
 }
 
 class TodoCollection {
@@ -44,6 +52,8 @@ class TodoCollection {
   final bool isArchived;
   final List<TodoItem> items;
   final int coinsReward;
+  final String? groupId; // Group this collection belongs to (null = personal)
+  final String? assignedTo; // User UID assigned to this collection (null = creator)
 
   const TodoCollection({
     required this.id,
@@ -53,6 +63,8 @@ class TodoCollection {
     required this.isArchived,
     required this.items,
     required this.coinsReward,
+    this.groupId,
+    this.assignedTo,
   });
 
   // Business Logic: Differentiate single line Tasks from compound Lists
@@ -72,6 +84,8 @@ class TodoCollection {
           .map((e) => TodoItem.fromMap(e as Map<String, dynamic>))
           .toList(),
       coinsReward: (data['coinsReward'] as int?) ?? 10,
+      groupId: data['groupId'] as String?,
+      assignedTo: data['assignedTo'] as String?,
     );
   }
 }
