@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/space_model.dart';
 import '../providers/spaces_provider.dart';
+import '../widgets/spaces/group_planner_tab.dart';
+import '../widgets/spaces/group_todo_tab.dart';
 
 // ---------------------------------------------------------------------------
 // SpaceDetailScreen — nested Group workspace
@@ -12,8 +14,9 @@ import '../providers/spaces_provider.dart';
 //
 // Visually mirrors the main app scaffold: an AppBar carrying the Space's name
 // plus a Material 3 NavigationBar. The bottom navigation is strictly the three
-// Group tabs — 'Group To-Do', 'Group Planner' and 'Group Reminders' — each
-// currently rendered as a placeholder shell for the upcoming phases.
+// Group tabs — 'Group To-Do', 'Group Planner' and 'Group Reminders'. Group
+// To-Do and Group Planner are wired to the shared `tasks` subcollection; Group
+// Reminders remains a placeholder shell for the upcoming phase.
 
 class SpaceDetailScreen extends ConsumerStatefulWidget {
   const SpaceDetailScreen({super.key, required this.space});
@@ -151,18 +154,10 @@ class _SpaceDetailScreenState extends ConsumerState<SpaceDetailScreen> {
       // IndexedStack preserves each tab's state across switches.
       body: IndexedStack(
         index: _selectedIndex,
-        children: const [
-          _GroupTabPlaceholder(
-            icon: Icons.checklist_rounded,
-            label: 'Group To-Do',
-            hint: 'Shared to-do lists & tasks for this Space',
-          ),
-          _GroupTabPlaceholder(
-            icon: Icons.calendar_today_rounded,
-            label: 'Group Planner',
-            hint: 'Shared daily planner schedule for this Space',
-          ),
-          _GroupTabPlaceholder(
+        children: [
+          GroupTodoTab(spaceId: widget.space.id),
+          GroupPlannerTab(spaceId: widget.space.id),
+          const _GroupTabPlaceholder(
             icon: Icons.notifications_rounded,
             label: 'Group Reminders',
             hint: 'Reminders & alerts shared with the group',
