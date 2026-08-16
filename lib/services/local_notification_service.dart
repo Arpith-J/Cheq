@@ -67,9 +67,13 @@ class LocalNotificationService {
   /// Posts an immediate local notification. Never throws on permission issues:
   /// on Android 13+ where notifications are disabled the call is silently
   /// skipped instead of surfacing a platform error in the background worker.
+  /// An optional stable [id] (e.g. `(taskId + '_creation').hashCode`) lets the
+  /// worker reuse the same banner id across runs; when omitted a fresh
+  /// collision-safe id is generated per call.
   Future<void> showNotification({
     required String title,
     required String body,
+    int? id,
   }) async {
     await initialize(requestPermissions: false);
 
@@ -83,7 +87,7 @@ class LocalNotificationService {
     }
 
     await _plugin.show(
-      id: _nextId(),
+      id: id ?? _nextId(),
       title: title,
       body: body,
       notificationDetails: const NotificationDetails(

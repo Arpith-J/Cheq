@@ -9,6 +9,7 @@ import 'package:workmanager/workmanager.dart';
 
 import '../firebase_options.dart';
 import 'local_notification_service.dart';
+import 'notification_service.dart';
 
 // ---------------------------------------------------------------------------
 // BackgroundSyncService — closed-app polling engine (no FCM)
@@ -42,25 +43,36 @@ enum NewGroupItemKind { task, reminder }
 class NewGroupItem {
   const NewGroupItem({
     required this.kind,
+    required this.id,
     required this.title,
     required this.spaceName,
+    this.startTime,
   });
 
   final NewGroupItemKind kind;
+
+  /// Firestore document id of the source task/reminder — the stable key for
+  /// both the immediate creation banner and the exact-time alarm ids.
+  final String id;
 
   /// Title of the task/reminder (fallback string when the doc has none).
   final String title;
 
   /// Display name of the Space the item was found in.
   final String spaceName;
+
+  /// The scheduled start time of the task/reminder (null when the doc has
+  /// none, e.g. a checklist-style group task). Drives the exact-time alarm.
+  final DateTime? startTime;
 }
 
 /// Workmanager callback dispatcher — the single background entry point. Fires
 /// in a background isolate whenever a scheduled task is due. Initializes
-/// Firebase, polls every Space for new shared tasks/reminders and posts one
-/// local notification per genuinely new item relevant to the user. Never
-/// throws across the platform boundary: failures are logged and a completion
-/// signal is always returned so the OS stops the worker cleanly.
+/// Firebase, polls every Space for new shared tasks/reminders and, per genuinely
+/// new item relevant to the user, posts an IMMEDIATE creation banner plus locks
+/// an EXACT-time alarm at the item's scheduled startTime. Never throws across
+/// the platform boundary: failures are logged and a completion signal is always
+/// returned so the OS stops the worker cleanly.
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -69,14 +81,33 @@ void callbackDispatcher() {
 
       for (final item in items) {
         final isReminder = item.kind == NewGroupItemKind.reminder;
+
+        // 1) IMMEDIATE creation banner — posted the moment the worker detects
+        //    the new shared item. The stable id keeps one banner per item even
+        //    if the worker ever re-detects the same doc.
         await LocalNotificationService.instance.showNotification(
+          id: ('${item.id}_creation').hashCode & 0x7fffffff,
           title: isReminder
-              ? 'New Reminder: ${item.title} in ${item.spaceName}'
-              : 'New Task: ${item.title} in ${item.spaceName}',
+              ? 'New reminder: ${item.title} added in ${item.spaceName}'
+              : 'New task: ${item.title} added in ${item.spaceName}',
           body: isReminder
               ? 'A group reminder was shared with you'
               : 'A group task was shared with you',
         );
+
+        // 2) EXACT-time alarm — locks in a future notification at the item's
+        //    scheduled startTime (never earlier). Past items already fired, so
+        //    only future windows get an alarm. The standard task.id-derived id
+        //    keeps the alarm overwriteable/cancellable by the same key.
+        final startTime = item.startTime;
+        if (startTime != null && startTime.isAfter(DateTime.now())) {
+          await NotificationService.instance.scheduleExactFromBackground(
+            id: item.id.hashCode & 0x7fffffff,
+            title: isReminder ? 'Group Reminder' : 'Group Task',
+            body: item.title,
+            scheduledTime: startTime,
+          );
+        }
       }
 
       debugPrint(
@@ -253,12 +284,14 @@ class BackgroundSyncService {
       final rawTitle = data['title'] as String?;
       newItems.add(NewGroupItem(
         kind: kind,
+        id: itemId,
         title: (rawTitle != null && rawTitle.trim().isNotEmpty)
             ? rawTitle
             : (kind == NewGroupItemKind.task
                 ? 'New group task'
                 : 'New group reminder'),
         spaceName: spaceName,
+        startTime: _timestamp(data['startTime']),
       ));
     }
   }
