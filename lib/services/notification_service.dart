@@ -5,6 +5,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
+import '../models/planner_model.dart';
 import 'firestore_service.dart';
 
 @pragma('vm:entry-point')
@@ -53,6 +54,12 @@ int stableNotificationIdFromTask(String taskId) {
   final parsedInt = int.tryParse(rawDigits);
   return parsedInt != null ? (parsedInt % 2147483647) : taskId.hashCode;
 }
+
+/// Derives the stable, non-negative local notification id for a group reminder.
+/// Masking off the sign bit keeps the id safe for the native plugin while still
+/// letting any reminder be overwritten or cancelled by id.
+int groupReminderNotificationId(String reminderId) =>
+    reminderId.hashCode & 0x7fffffff;
 
 class NotificationService {
   NotificationService._();
@@ -193,4 +200,57 @@ class NotificationService {
   }
   
   Future<void> cancelBriefing(int id) async => await _plugin.cancel(id: id);
+
+  // ── GROUP REMINDER SYNC ──
+
+  /// Reconciles the device's local alarms against the current group reminders
+  /// list for [currentUserId]:
+  ///  - a reminder assigned to the user (or to the whole group via
+  ///    `assignedTo == null`) that is still unacknowledged and triggers in the
+  ///    future is scheduled — re-scheduling the same id overwrites any prior
+  ///    alarm in place;
+  ///  - any reminder that is acknowledged, already in the past, or delegated to
+  ///    someone else has its alarm cancelled so ghost notifications can never
+  ///    fire.
+  ///
+  /// Returns the notification ids actually scheduled so callers can cancel
+  /// alarms left behind by reminders that were deleted outright (the id of a
+  /// deleted reminder is no longer present in the list to cancel).
+  Future<Set<int>> syncGroupRemindersToNativeAlarms(
+    List<PlannerModel> reminders,
+    String currentUserId,
+  ) async {
+    if (!_initialized) await initialize();
+
+    final now = DateTime.now();
+    final scheduled = <int>{};
+
+    for (final reminder in reminders) {
+      final notificationId = groupReminderNotificationId(reminder.id);
+      final targetsCurrentUser = reminder.assignedTo == null ||
+          reminder.assignedTo == currentUserId;
+      final shouldSchedule = targetsCurrentUser &&
+          !reminder.isDone &&
+          reminder.startTime.isAfter(now);
+
+      if (shouldSchedule) {
+        await scheduleNotification(
+          id: notificationId,
+          title: 'Group Reminder',
+          body: reminder.title,
+          scheduledTime: reminder.startTime,
+          payload: jsonEncode({
+            'taskId': reminder.id,
+            'uid': currentUserId,
+            'notificationId': notificationId,
+          }),
+        );
+        scheduled.add(notificationId);
+      } else {
+        await cancelNotification(notificationId);
+      }
+    }
+
+    return scheduled;
+  }
 }

@@ -18,3 +18,21 @@ class CarryOverTasksNotifier extends Notifier<bool> {
     state = value;
   }
 }
+
+final showGroupTasksProvider = NotifierProvider<ShowGroupTasksNotifier, bool>(ShowGroupTasksNotifier.new);
+
+class ShowGroupTasksNotifier extends Notifier<bool> {
+  static const _key = 'show_group_tasks_on_main';
+
+  @override
+  bool build() {
+    final prefs = ref.watch(sharedPrefsProvider);
+    return prefs.getBool(_key) ?? true; // Defaults to True
+  }
+
+  Future<void> toggle(bool value) async {
+    final prefs = ref.read(sharedPrefsProvider);
+    await prefs.setBool(_key, value);
+    state = value;
+  }
+}
