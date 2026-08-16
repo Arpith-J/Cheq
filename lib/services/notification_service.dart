@@ -288,6 +288,66 @@ class NotificationService {
     }
   }
 
+  /// Schedules an EXACT-time local alarm from a background isolate — the
+  /// dual-notification counterpart to the immediate creation banner posted by
+  /// the background sync worker. Like [rescheduleFromBackground], this spins up
+  /// a fresh plugin instance WITHOUT requesting any permissions (already granted
+  /// in the foreground; a background isolate must never open the exact-alarm
+  /// settings screen) and anchors the alarm to the exact wall-clock moment via
+  /// `tz.TZDateTime.from(scheduledTime, tz.local)` +
+  /// `AndroidScheduleMode.exactAllowWhileIdle`. Deliberately carries NO actions
+  /// — a group task tap should never route into the personal `mark_done` or the
+  /// group reminder `Snooze`/`Done` handlers.
+  Future<void> scheduleExactFromBackground({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledTime,
+  }) async {
+    try {
+      tz.initializeTimeZones();
+      try {
+        final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
+        tz.setLocalLocation(tz.getLocation(timeZoneInfo.identifier));
+      } catch (e) {
+        debugPrint("Background timezone lookup failed: $e");
+        tz.setLocalLocation(tz.getLocation('Etc/UTC'));
+      }
+
+      final isolatePlugin = FlutterLocalNotificationsPlugin();
+      await isolatePlugin.initialize(
+        settings: const InitializationSettings(
+          android: AndroidInitializationSettings('ic_stat_notification'),
+        ),
+      );
+
+      await isolatePlugin.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'cheq_planner_channel',
+            'Daily Planner',
+            channelDescription: 'Reminders for your daily planner tasks',
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: 'ic_stat_notification',
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+    } catch (e) {
+      debugPrint("Background exact alarm schedule failed: $e");
+    }
+  }
+
   // ── NEW DAILY REPEATING BRIEFING ──
   Future<void> scheduleDailyBriefing({
     required int id,

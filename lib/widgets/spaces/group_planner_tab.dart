@@ -90,9 +90,6 @@ class _GroupPlannerTabState extends ConsumerState<GroupPlannerTab> {
   @override
   Widget build(BuildContext context) {
     final tasksAsync = ref.watch(groupTasksProvider(widget.spaceId));
-    final memberNames =
-        ref.watch(spaceMembersProvider(widget.spaceId)).value ??
-            const <String, String>{};
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -142,8 +139,8 @@ class _GroupPlannerTabState extends ConsumerState<GroupPlannerTab> {
                   _DayHeader(day: day),
                   for (final task in byDay[day]!)
                     _GroupPlannerTaskTile(
+                      spaceId: widget.spaceId,
                       task: task,
-                      memberNames: memberNames,
                       isBusy: _busyTaskId == task.id,
                       onToggle: () => _toggleTask(task),
                       onDelete: () => _confirmDelete(task),
@@ -223,20 +220,31 @@ class _DayHeader extends StatelessWidget {
 // Timeline task tile — mirrors the personal planner's TaskRow card
 // ---------------------------------------------------------------------------
 
-class _GroupPlannerTaskTile extends StatelessWidget {
+class _GroupPlannerTaskTile extends ConsumerStatefulWidget {
   const _GroupPlannerTaskTile({
+    required this.spaceId,
     required this.task,
-    required this.memberNames,
     required this.isBusy,
     required this.onToggle,
     required this.onDelete,
   });
 
+  final String spaceId;
   final PlannerModel task;
-  final Map<String, String> memberNames;
   final bool isBusy;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+
+  @override
+  ConsumerState<_GroupPlannerTaskTile> createState() =>
+      _GroupPlannerTaskTileState();
+}
+
+class _GroupPlannerTaskTileState extends ConsumerState<_GroupPlannerTaskTile> {
+  /// Whether the expanded details (duration / assignee / Edit) are shown.
+  bool _isExpanded = false;
+
+  PlannerModel get task => widget.task;
 
   String _formatTime(DateTime dt) {
     final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
@@ -245,7 +253,9 @@ class _GroupPlannerTaskTile extends StatelessWidget {
     return '$hour:$minute $period';
   }
 
-  String? _assigneeLabel() {
+  /// Chip label shown on the collapsed card: null for group-wide assignments
+  /// (no chip), 'You' for the signed-in member, otherwise the member name.
+  String? _assigneeLabel(Map<String, String> memberNames) {
     if (task.assignedTo == null) return null;
     if (task.assignedTo == FirebaseAuth.instance.currentUser?.uid) {
       return 'You';
@@ -253,12 +263,41 @@ class _GroupPlannerTaskTile extends StatelessWidget {
     return memberNames[task.assignedTo] ?? 'Member';
   }
 
+  /// Assignee label for the expanded details — always resolves, defaulting to
+  /// 'Everyone' when the task is assigned to the whole group.
+  String _assigneeForDetails(Map<String, String> memberNames) {
+    final assignedTo = task.assignedTo;
+    if (assignedTo == null || assignedTo == 'Everyone') return 'Everyone';
+    if (assignedTo == FirebaseAuth.instance.currentUser?.uid) return 'You';
+    return memberNames[assignedTo] ?? 'Member';
+  }
+
+  void _openEditSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => UncontrolledProviderScope(
+        container: ProviderScope.containerOf(context),
+        child: GroupTaskSheet(
+          spaceId: widget.spaceId,
+          initialEntry: task,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final now = DateTime.now();
     final isOverdue = !task.isDone && now.isAfter(task.endTime);
-    final assignee = _assigneeLabel();
+    final memberNames = ref.watch(spaceMembersProvider(widget.spaceId)).value ??
+        const <String, String>{};
+    final assignee = _assigneeLabel(memberNames);
     final hasCategory = task.categoryName != null && task.categoryColor != null;
     final categoryColor = hasCategory ? Color(task.categoryColor!) : null;
 
@@ -291,8 +330,16 @@ class _GroupPlannerTaskTile extends StatelessWidget {
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            onLongPress: onDelete,
-            child: IntrinsicHeight(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            onLongPress: widget.onDelete,
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -390,7 +437,7 @@ class _GroupPlannerTaskTile extends StatelessWidget {
                             child: Checkbox(
                               value: task.isDone,
                               onChanged:
-                                  isBusy ? null : (_) => onToggle(),
+                                  widget.isBusy ? null : (_) => widget.onToggle(),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(6),
                               ),
@@ -405,11 +452,92 @@ class _GroupPlannerTaskTile extends StatelessWidget {
                 ],
               ),
             ),
+              if (_isExpanded)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(79, 0, 14, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Divider(
+                        height: 1,
+                        color: cs.outlineVariant.withValues(alpha: 0.4),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 14,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Duration: ${_formatTime(task.startTime)} - '
+                            '${_formatTime(task.endTime)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.lock_rounded, size: 14, color: cs.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Fixed',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_rounded,
+                            size: 14,
+                            color: cs.secondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Assignee: ${_assigneeForDetails(memberNames)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: _openEditSheet,
+                            icon: const Icon(Icons.edit_rounded, size: 14),
+                            label: const Text(
+                              'Edit',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _chip({
     required Color bg,

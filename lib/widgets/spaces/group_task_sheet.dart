@@ -14,10 +14,15 @@ import '../../services/firestore_service.dart';
 /// assignee. Saving writes straight into `spaces/{spaceId}/tasks` so every
 /// member's Group Planner timeline updates in near-real-time.
 class GroupTaskSheet extends ConsumerStatefulWidget {
-  const GroupTaskSheet({super.key, required this.spaceId});
+  const GroupTaskSheet({super.key, required this.spaceId, this.initialEntry});
 
   /// The owning Space — the task is stored under `spaces/{spaceId}/tasks`.
   final String spaceId;
+
+  /// When provided the sheet edits this existing task instead of creating a
+  /// new one: the fields are pre-filled and [FirestoreService.saveGroupTask]
+  /// keeps the original id/createdAt so ordering and identity are preserved.
+  final PlannerModel? initialEntry;
 
   @override
   ConsumerState<GroupTaskSheet> createState() => _GroupTaskSheetState();
@@ -36,14 +41,23 @@ class _GroupTaskSheetState extends ConsumerState<GroupTaskSheet> {
   @override
   void initState() {
     super.initState();
-    _date = DateTime.now();
-    _startTime = TimeOfDay.now();
-    final endMinutes = _startTime.hour * 60 + _startTime.minute + 60;
-    _endTime = TimeOfDay(hour: endMinutes ~/ 60 % 24, minute: endMinutes % 60);
-    _assignedTo = FirebaseAuth.instance.currentUser?.uid;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _titleFocus.requestFocus();
-    });
+    final entry = widget.initialEntry;
+    if (entry != null) {
+      _titleCtrl.text = entry.title;
+      _date = entry.startTime;
+      _startTime = TimeOfDay.fromDateTime(entry.startTime);
+      _endTime = TimeOfDay.fromDateTime(entry.endTime);
+      _assignedTo = entry.assignedTo;
+    } else {
+      _date = DateTime.now();
+      _startTime = TimeOfDay.now();
+      final endMinutes = _startTime.hour * 60 + _startTime.minute + 60;
+      _endTime = TimeOfDay(hour: endMinutes ~/ 60 % 24, minute: endMinutes % 60);
+      _assignedTo = FirebaseAuth.instance.currentUser?.uid;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _titleFocus.requestFocus();
+      });
+    }
   }
 
   @override
@@ -114,8 +128,9 @@ class _GroupTaskSheetState extends ConsumerState<GroupTaskSheet> {
       );
       if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
 
+      final existing = widget.initialEntry;
       final task = PlannerModel(
-        id: 'group_${DateTime.now().millisecondsSinceEpoch}',
+        id: existing?.id ?? 'group_${DateTime.now().millisecondsSinceEpoch}',
         title: _titleCtrl.text.trim(),
         startTime: start,
         endTime: end,
@@ -124,7 +139,8 @@ class _GroupTaskSheetState extends ConsumerState<GroupTaskSheet> {
         isTimeLocked: true,
         groupId: widget.spaceId,
         assignedTo: _assignedTo,
-        createdAt: DateTime.now(),
+        isDone: existing?.isDone ?? false,
+        createdAt: existing?.createdAt ?? DateTime.now(),
       );
 
       await FirestoreService.instance.saveGroupTask(widget.spaceId, task);
@@ -173,7 +189,9 @@ class _GroupTaskSheetState extends ConsumerState<GroupTaskSheet> {
                 Row(
                   children: [
                     Text(
-                      'Schedule Task',
+                      widget.initialEntry != null
+                          ? 'Edit Task'
+                          : 'Schedule Task',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w700),
                     ),
