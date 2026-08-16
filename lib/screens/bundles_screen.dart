@@ -1,32 +1,26 @@
-// lib/screens/rewards_screen.dart
+// lib/screens/bundles_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/rewards_provider.dart';
 import '../theme/app_themes.dart';
-import 'constellation_screen.dart';
+import '../widgets/coin_pill.dart';
 import 'theme_preview_screen.dart';
 
 // ---------------------------------------------------------------------------
-// RewardsScreen — Premium theme bundles & Constellation hub
+// BundlesScreen — Premium theme bundle shop
 // ---------------------------------------------------------------------------
 
-class RewardsScreen extends ConsumerStatefulWidget {
-  const RewardsScreen({super.key});
+class BundlesScreen extends ConsumerStatefulWidget {
+  const BundlesScreen({super.key});
 
   @override
-  ConsumerState<RewardsScreen> createState() => _RewardsScreenState();
+  ConsumerState<BundlesScreen> createState() => _BundlesScreenState();
 }
 
-class _RewardsScreenState extends ConsumerState<RewardsScreen> {
+class _BundlesScreenState extends ConsumerState<BundlesScreen> {
   String? _busyThemeId;
-
-  void _openFullScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ConstellationScreen()),
-    );
-  }
 
   void _openPreview(ThemeCatalogEntry entry) {
     Navigator.of(context).push(
@@ -55,84 +49,39 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final userAsync = ref.watch(userStreamProvider);
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        body: userAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
-          data: (user) => Column(
-            children: [
-              const TabBar(
-                labelStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
-                tabs: [
-                  Tab(text: 'Bundles'),
-                  Tab(text: 'Constellation'),
-                ],
-              ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _BundlesTab(
-                      unlockedThemes: user.unlockedThemes,
-                      activeTheme: user.activeTheme,
-                      coins: user.coins,
-                      busyThemeId: _busyThemeId,
-                      onPreview: _openPreview,
-                      onEquip: _equipTheme,
-                    ),
-                    ConstellationView(onFullScreen: _openFullScreen),
-                  ],
-                ),
-              ),
-            ],
-          ),
+    return Scaffold(
+      backgroundColor: cs.surface,
+      appBar: AppBar(
+        backgroundColor: cs.surface,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: cs.shadow.withValues(alpha: 0.08),
+        elevation: 0,
+        scrolledUnderElevation: 1,
+        titleSpacing: 4,
+        title: const Text(
+          'Bundles',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          const CoinPill(),
+          const SizedBox(width: 16),
+        ],
+      ),
+      body: userAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (user) => _BundlesGrid(
+          unlockedThemes: user.unlockedThemes,
+          activeTheme: user.activeTheme,
+          coins: user.coins,
+          busyThemeId: _busyThemeId,
+          onPreview: _openPreview,
+          onEquip: _equipTheme,
         ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Bundles tab — coin chip + premium theme shop grid
-// ---------------------------------------------------------------------------
-
-class _BundlesTab extends StatelessWidget {
-  const _BundlesTab({
-    required this.unlockedThemes,
-    required this.activeTheme,
-    required this.coins,
-    required this.busyThemeId,
-    required this.onPreview,
-    required this.onEquip,
-  });
-
-  final List<String> unlockedThemes;
-  final String activeTheme;
-  final int coins;
-  final String? busyThemeId;
-  final void Function(ThemeCatalogEntry entry) onPreview;
-  final void Function(ThemeCatalogEntry entry) onEquip;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(
-          child: _BundlesGrid(
-            unlockedThemes: unlockedThemes,
-            activeTheme: activeTheme,
-            coins: coins,
-            busyThemeId: busyThemeId,
-            onPreview: onPreview,
-            onEquip: onEquip,
-          ),
-        ),
-      ],
     );
   }
 }

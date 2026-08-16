@@ -5,79 +5,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/star_model.dart';
 import '../models/user_model.dart';
 import '../providers/rewards_provider.dart';
+import '../widgets/coin_pill.dart';
 import '../widgets/constellation_painter.dart';
 
 /// Full-screen immersive mode for the Constellation Data Core. The background
 /// adapts to the active theme — deep black on dark themes, the themed surface
 /// color on light themes (e.g. Soft Paper) — so the close button, lines, and
 /// icons always stay visible.
-class ConstellationScreen extends StatelessWidget {
+class ConstellationScreen extends ConsumerStatefulWidget {
   const ConstellationScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final foreground = isDark ? Colors.white : cs.onSurface;
-    final buttonBackground = isDark
-        ? Colors.white.withValues(alpha: 0.12)
-        : Colors.black.withValues(alpha: 0.08);
-
-    return Scaffold(
-      backgroundColor: isDark ? Colors.black : cs.surface,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: ConstellationView()),
-          // ── Exit full-screen mode ───────────────────────────────────────
-          Positioned(
-            top: 0,
-            left: 0,
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: Icon(Icons.close, color: foreground),
-                  style: IconButton.styleFrom(
-                    backgroundColor: buttonBackground,
-                    foregroundColor: foreground,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  ConsumerState<ConstellationScreen> createState() =>
+      _ConstellationScreenState();
 }
 
-/// The reusable heart of the Constellation feature: the animated CustomPaint
-/// star field with pan/drag interaction, an empty-state hint, and the
-/// glassmorphism "buy star" panel. When [onFullScreen] is provided, a floating
-/// full-screen button is rendered in the top-right corner.
-class ConstellationView extends ConsumerStatefulWidget {
-  const ConstellationView({super.key, this.onFullScreen});
-
-  final VoidCallback? onFullScreen;
-
-  @override
-  ConsumerState<ConstellationView> createState() =>
-      _ConstellationViewState();
-}
-
-class _ConstellationViewState extends ConsumerState<ConstellationView>
-    with TickerProviderStateMixin {
+class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
+    with SingleTickerProviderStateMixin {
+  /// Drives the sparkle/twinkle animation. Loops forever until paused.
   late final AnimationController _controller;
-  bool _isBuying = false;
-  bool _panelExpanded = false;
 
   /// When true, the sparkle animation is frozen so stars can be rearranged.
   bool _isPaused = false;
-
-  /// The star currently being dragged (only meaningful while paused).
-  String? _draggedStarId;
 
   @override
   void initState() {
@@ -104,6 +53,99 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
     }
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final foreground = isDark ? Colors.white : cs.onSurface;
+    final buttonBackground = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.08);
+
+    return Scaffold(
+      backgroundColor: isDark ? Colors.black : cs.surface,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ConstellationView(
+                animation: _controller,
+                paused: _isPaused,
+              ),
+            ),
+            // ── Exit full-screen mode (top-left) ───────────────────────────
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: Icon(Icons.close, color: foreground),
+                style: IconButton.styleFrom(
+                  backgroundColor: buttonBackground,
+                  foregroundColor: foreground,
+                ),
+              ),
+            ),
+            // ── Live coin balance (top-right) ──────────────────────────────
+            Positioned(
+              top: 8,
+              right: 8,
+              child: const CoinPill(),
+            ),
+            // ── Pause / Play rotation toggle (below the coin balance) ──────
+            Positioned(
+              top: 64,
+              right: 8,
+              child: IconButton(
+                onPressed: _togglePause,
+                icon: Icon(
+                  _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                  color: foreground,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: buttonBackground,
+                  foregroundColor: foreground,
+                ),
+                tooltip: _isPaused ? 'Play' : 'Pause',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The reusable heart of the Constellation feature: the animated CustomPaint
+/// star field with pan/drag interaction, an empty-state hint, and the
+/// glassmorphism "buy star" panel.
+class ConstellationView extends ConsumerStatefulWidget {
+  const ConstellationView({
+    super.key,
+    required this.animation,
+    required this.paused,
+  });
+
+  /// Drives the sparkle/twinkle animation (owned by the host screen so the
+  /// full-screen pause toggle can stop/repeat it).
+  final AnimationController animation;
+
+  /// When true, the sparkle animation is frozen so stars can be rearranged.
+  final bool paused;
+
+  @override
+  ConsumerState<ConstellationView> createState() =>
+      _ConstellationViewState();
+}
+
+class _ConstellationViewState extends ConsumerState<ConstellationView> {
+  bool _isBuying = false;
+  bool _panelExpanded = false;
+
+  /// The star currently being dragged (only meaningful while paused).
+  String? _draggedStarId;
+
   /// Returns the star whose canvas position is within ~30px of [pos], or null.
   /// Delegates to the painter so hit tests match what is actually rendered
   /// (drift animation included).
@@ -112,12 +154,12 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
       ref.read(rewardsProvider).constellation,
       size,
       pos,
-      animationValue: _controller.value,
+      animationValue: widget.animation.value,
     );
   }
 
   void _handlePanStart(DragStartDetails details, Size size) {
-    if (!_isPaused) return;
+    if (!widget.paused) return;
     // Only claim the gesture when the touch actually lands on a star;
     // otherwise ignore it so the InteractiveViewer can pan/zoom.
     final star = _starAt(details.localPosition, size);
@@ -177,7 +219,6 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final foreground = isDark ? Colors.white : cs.onSurface;
     final lineColor = isDark ? Colors.white : cs.onSurface;
 
     return userAsync.when(
@@ -208,20 +249,20 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                     // hitTest only hits near rendered stars); everything else
                     // falls through to the InteractiveViewer for pan/zoom.
                     behavior: HitTestBehavior.deferToChild,
-                    onPanStart: _isPaused
+                    onPanStart: widget.paused
                         ? (details) => _handlePanStart(details, canvasSize)
                         : null,
-                    onPanUpdate: _isPaused
+                    onPanUpdate: widget.paused
                         ? (details) => _handlePanUpdate(details, canvasSize)
                         : null,
-                    onPanEnd: _isPaused ? _handlePanEnd : null,
+                    onPanEnd: widget.paused ? _handlePanEnd : null,
                     child: AnimatedBuilder(
-                      animation: _controller,
+                      animation: widget.animation,
                       builder: (context, _) => CustomPaint(
                         size: Size.infinite,
                         painter: ConstellationPainter(
                           stars: user.constellation,
-                          animationValue: _controller.value,
+                          animationValue: widget.animation.value,
                           canvasSize: canvasSize,
                           lineColor: lineColor,
                         ),
@@ -243,58 +284,6 @@ class _ConstellationViewState extends ConsumerState<ConstellationView>
                 ),
               ),
             ),
-          // ── Compact balance pill (full-screen mode only) ───────────────
-          // The embedded shop tab already shows its own balance chip in the
-          // header, so only the immersive full-screen view gets a pill here.
-          if (widget.onFullScreen == null)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Center(
-                  child: _BalancePill(coins: user.coins),
-                ),
-              ),
-            ),
-          // ── Full screen affordance ─────────────────────────────────────
-          if (widget.onFullScreen != null)
-            Positioned(
-              top: 12,
-              right: 12,
-              child: IconButton(
-                onPressed: widget.onFullScreen,
-                icon: Icon(Icons.fullscreen, color: foreground),
-                style: IconButton.styleFrom(
-                  backgroundColor: isDark
-                      ? Colors.white.withValues(alpha: 0.12)
-                      : Colors.black.withValues(alpha: 0.06),
-                  foregroundColor: foreground,
-                ),
-                tooltip: 'Full screen',
-              ),
-            ),
-          // ── Play / Pause ───────────────────────────────────────────────
-          Positioned(
-            top: widget.onFullScreen != null ? 64 : 12,
-            right: 12,
-            child: IconButton(
-              onPressed: _togglePause,
-              icon: Icon(
-                _isPaused
-                    ? Icons.play_arrow_rounded
-                    : Icons.pause_rounded,
-                color: foreground,
-              ),
-              style: IconButton.styleFrom(
-                backgroundColor: isDark
-                    ? Colors.white.withValues(alpha: 0.12)
-                    : Colors.black.withValues(alpha: 0.06),
-                foregroundColor: foreground,
-              ),
-              tooltip: _isPaused ? 'Play' : 'Pause',
-            ),
-          ),
           // ── Collapsible glassmorphism purchase panel ──────────────────
           Positioned(
             left: 16,
@@ -575,62 +564,6 @@ class _BuyPill extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Compact balance pill
-// ---------------------------------------------------------------------------
-
-class _BalancePill extends StatelessWidget {
-  const _BalancePill({required this.coins});
-
-  final int coins;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final onGold = isDark ? const Color(0xFFB8860B) : const Color(0xFF6D4C00);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : cs.surfaceContainerHigh.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.18)
-              : cs.outlineVariant.withValues(alpha: 0.5),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('✨', style: const TextStyle(fontSize: 16)),
-          const SizedBox(width: 6),
-          Text(
-            '$coins',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: onGold,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ],
       ),
     );
   }

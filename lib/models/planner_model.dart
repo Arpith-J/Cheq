@@ -15,6 +15,8 @@ class PlannerModel {
   final String? repeatGroupId;
   final String? categoryName;
   final int? categoryColor;
+  final String? groupId; // Group the task belongs to (null = personal/private)
+  final String? assignedTo; // User UID this task is assigned to (null = creator)
 
   const PlannerModel({
     required this.id,
@@ -31,6 +33,8 @@ class PlannerModel {
     this.repeatGroupId,
     this.categoryName,
     this.categoryColor,
+    this.groupId,
+    this.assignedTo,
   });
 
   PlannerModel copyWith({
@@ -48,6 +52,8 @@ class PlannerModel {
     String? repeatGroupId,
     String? categoryName,
     int? categoryColor,
+    String? groupId,
+    String? assignedTo,
   }) {
     return PlannerModel(
       id: id ?? this.id,
@@ -64,6 +70,8 @@ class PlannerModel {
       repeatGroupId: repeatGroupId ?? this.repeatGroupId,
       categoryName: categoryName ?? this.categoryName,
       categoryColor: categoryColor ?? this.categoryColor,
+      groupId: groupId ?? this.groupId,
+      assignedTo: assignedTo ?? this.assignedTo,
     );
   }
 
@@ -83,6 +91,8 @@ class PlannerModel {
       'repeatGroupId': repeatGroupId,
       'categoryName': categoryName,
       'categoryColor': categoryColor,
+      'groupId': groupId,
+      'assignedTo': assignedTo,
     };
   }
 
@@ -107,6 +117,8 @@ class PlannerModel {
       repeatGroupId: map['repeatGroupId'] as String?,
       categoryName: map['categoryName'] as String?,
       categoryColor: map['categoryColor'] as int?,
+      groupId: map['groupId'] as String?,
+      assignedTo: map['assignedTo'] as String?,
     );
   }
 }

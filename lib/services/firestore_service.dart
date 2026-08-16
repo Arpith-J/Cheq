@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -8,6 +9,7 @@ import 'package:home_widget/home_widget.dart';
 import '../firebase_options.dart';
 import '../models/planner_model.dart';
 import '../models/user_model.dart';
+import '../models/space_model.dart';
 import '../providers/rewards_provider.dart';
 import 'home_widget_service.dart';
 import '../services/notification_service.dart';
@@ -590,6 +592,126 @@ class FirestoreService {
         .collection('categories')
         .doc(categoryId)
         .delete();
+  }
+
+  // --- SPACE / GROUP METHODS ---
+
+  /// Creates a new collaborative Space with a unique 6-character uppercase
+  /// alphanumeric room code and sets the creator as its first member.
+  Future<SpaceModel> createSpace(String spaceName) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('You must be signed in to create a Space.');
+
+    final name = spaceName.trim();
+    if (name.isEmpty) throw ArgumentError('Space name cannot be empty.');
+
+    final now = DateTime.now();
+    final code = await _generateUniqueRoomCode();
+
+    final data = <String, dynamic>{
+      'name': name,
+      'roomCode': code,
+      'createdBy': user.uid,
+      'members': [user.uid],
+      'createdAt': now.toIso8601String(),
+    };
+
+    // `add()` writes through Firestore's offline persistence first, so the new
+    // Space is visible instantly (even offline) and syncs once the network
+    // returns.
+    final ref = await _db.collection('spaces').add(data);
+
+    return SpaceModel(
+      id: ref.id,
+      name: name,
+      roomCode: code,
+      createdBy: user.uid,
+      members: [user.uid],
+      createdAt: now,
+    );
+  }
+
+  /// Looks up a Space by its 6-digit room code (case-insensitive) and adds the
+  /// current user to `members` via `FieldValue.arrayUnion`. Returns false when
+  /// the user is signed out, the code is malformed, or no Space matches.
+  Future<bool> joinSpaceByCode(String code) async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+
+    final normalized = code.trim().toUpperCase();
+    if (normalized.length != 6 || !RegExp(r'^[A-Z0-9]{6}$').hasMatch(normalized)) {
+      return false;
+    }
+
+    final snapshot = await _db
+        .collection('spaces')
+        .where('roomCode', isEqualTo: normalized)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return false;
+
+    // arrayUnion is idempotent, so re-joining an already-member Space is a
+    // harmless no-op.
+    await _db.collection('spaces').doc(snapshot.docs.first.id).update({
+      'members': FieldValue.arrayUnion([user.uid]),
+    });
+    return true;
+  }
+
+  /// Live stream of every Space whose `members` array contains the current
+  /// user's UID. Sorted newest-first in Dart (an `array-contains` + `orderBy`
+  /// combination would otherwise demand a composite index).
+  Stream<List<SpaceModel>> streamUserSpaces() {
+    final user = _auth.currentUser;
+    if (user == null) return Stream.value(const []);
+
+    return _db
+        .collection('spaces')
+        .where('members', arrayContains: user.uid)
+        .snapshots()
+        .map((snapshot) {
+      final spaces = snapshot.docs
+          .map((doc) => SpaceModel.fromMap(doc.data(), id: doc.id))
+          .toList();
+      spaces.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return spaces;
+    });
+  }
+
+  /// Removes the current user's UID from a Space's `members`. The Space itself
+  /// is left in place so remaining members keep their data.
+  Future<void> leaveSpace(String spaceId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    await _db.collection('spaces').doc(spaceId).update({
+      'members': FieldValue.arrayRemove([user.uid]),
+    });
+  }
+
+  /// Generates a 6-character uppercase alphanumeric room code that does not
+  /// collide with any existing Space.
+  Future<String> _generateUniqueRoomCode() async {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rng = Random();
+    final spacesRef = _db.collection('spaces');
+
+    String candidate() => List.generate(
+          6,
+          (_) => chars[rng.nextInt(chars.length)],
+        ).join();
+
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final code = candidate();
+      final existing = await spacesRef
+          .where('roomCode', isEqualTo: code)
+          .limit(1)
+          .get();
+      if (existing.docs.isEmpty) return code;
+    }
+
+    throw StateError('Could not generate a unique room code. Try again.');
   }
 
   /// Completes a planner task exactly like the in-app checkbox: persists
