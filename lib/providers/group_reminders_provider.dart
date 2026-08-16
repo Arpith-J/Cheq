@@ -38,7 +38,8 @@ final groupRemindersProvider =
         lastFingerprint = fingerprint;
 
         final scheduledIds = await NotificationService.instance
-            .syncGroupRemindersToNativeAlarms(reminders, uid);
+            .syncGroupRemindersToNativeAlarms(reminders, uid,
+                spaceId: spaceId);
 
         // Cancel alarms for reminders that vanished from this Space's list
         // (deleted outright) — the sync method can only cancel what it still
