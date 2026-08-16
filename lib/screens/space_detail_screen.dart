@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/space_model.dart';
 import '../providers/spaces_provider.dart';
 import '../widgets/spaces/group_planner_tab.dart';
+import '../widgets/spaces/group_reminders_tab.dart';
 import '../widgets/spaces/group_todo_tab.dart';
 
 // ---------------------------------------------------------------------------
@@ -14,9 +15,9 @@ import '../widgets/spaces/group_todo_tab.dart';
 //
 // Visually mirrors the main app scaffold: an AppBar carrying the Space's name
 // plus a Material 3 NavigationBar. The bottom navigation is strictly the three
-// Group tabs — 'Group To-Do', 'Group Planner' and 'Group Reminders'. Group
-// To-Do and Group Planner are wired to the shared `tasks` subcollection; Group
-// Reminders remains a placeholder shell for the upcoming phase.
+// Group tabs — 'Group To-Do', 'Group Planner' and 'Group Reminders'. All three
+// are live: Group To-Do and Group Planner share the `tasks` subcollection while
+// Group Reminders streams its own `reminders` subcollection.
 
 class SpaceDetailScreen extends ConsumerStatefulWidget {
   const SpaceDetailScreen({super.key, required this.space});
@@ -157,11 +158,7 @@ class _SpaceDetailScreenState extends ConsumerState<SpaceDetailScreen> {
         children: [
           GroupTodoTab(spaceId: widget.space.id),
           GroupPlannerTab(spaceId: widget.space.id),
-          const _GroupTabPlaceholder(
-            icon: Icons.notifications_rounded,
-            label: 'Group Reminders',
-            hint: 'Reminders & alerts shared with the group',
-          ),
+          GroupRemindersTab(spaceId: widget.space.id),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -199,72 +196,4 @@ class _GroupTab {
   final String label;
   final IconData icon;
   final IconData activeIcon;
-}
-
-// ---------------------------------------------------------------------------
-// _GroupTabPlaceholder — empty shell for an upcoming Group tab
-// ---------------------------------------------------------------------------
-
-class _GroupTabPlaceholder extends StatelessWidget {
-  const _GroupTabPlaceholder({
-    required this.icon,
-    required this.label,
-    required this.hint,
-  });
-
-  final IconData icon;
-  final String label;
-  final String hint;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: cs.primaryContainer.withValues(alpha: 0.6),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 34, color: cs.onPrimaryContainer),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              hint,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: cs.onSurfaceVariant,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Coming soon',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: cs.primary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

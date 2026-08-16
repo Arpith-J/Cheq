@@ -810,6 +810,84 @@ class FirestoreService {
     }
   }
 
+  // --- GROUP REMINDER METHODS ---
+
+  /// Live stream of the shared reminders stored under
+  /// `spaces/{spaceId}/reminders`, ordered newest-first by creation time.
+  /// Reminders live in their own subcollection so the Group Planner timeline
+  /// and the Group Reminders list stay independent. Firestore rules for
+  /// `/spaces/{spaceId}/reminders` are expected to be tightened later.
+  Stream<List<PlannerModel>> streamGroupReminders(String spaceId) {
+    if (spaceId.isEmpty) return Stream.value(const []);
+    return _db
+        .collection('spaces')
+        .doc(spaceId)
+        .collection('reminders')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => PlannerModel.fromMap(doc.data()))
+            .toList());
+  }
+
+  /// Saves or updates a shared reminder inside `spaces/{spaceId}/reminders`.
+  /// New reminders receive a `createdAt` stamp (falling back to now when the
+  /// model omits one) so the reminders list streams in a stable order.
+  Future<void> saveGroupReminder(String spaceId, PlannerModel reminder) async {
+    if (spaceId.isEmpty) return;
+    try {
+      final data = reminder.toMap();
+      if (data['createdAt'] == null) {
+        data['createdAt'] = DateTime.now().toIso8601String();
+      }
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminder.id)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to save group reminder to Firestore: $e");
+    }
+  }
+
+  /// Flips a shared reminder's `isDone` flag, which the Group Reminders list
+  /// uses as its acknowledged state. Unlike [toggleGroupTaskCompletion] this
+  /// intentionally awards no coins — acknowledging a reminder should never be
+  /// farmable.
+  Future<void> toggleGroupReminderAcknowledged({
+    required String spaceId,
+    required String reminderId,
+    required bool acknowledged,
+  }) async {
+    if (spaceId.isEmpty) return;
+    try {
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminderId)
+          .update({'isDone': acknowledged});
+    } catch (e) {
+      debugPrint("Failed to toggle group reminder acknowledgement: $e");
+    }
+  }
+
+  /// Removes a shared reminder from `spaces/{spaceId}/reminders`.
+  Future<void> deleteGroupReminder(String spaceId, String reminderId) async {
+    if (spaceId.isEmpty) return;
+    try {
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminderId)
+          .delete();
+    } catch (e) {
+      debugPrint("Failed to delete group reminder from Firestore: $e");
+    }
+  }
+
   /// Generates a 6-character uppercase alphanumeric room code that does not
   /// collide with any existing Space.
   Future<String> _generateUniqueRoomCode() async {
