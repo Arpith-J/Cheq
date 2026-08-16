@@ -57,13 +57,17 @@ final groupRemindersProvider =
 });
 
 /// Compact fingerprint of the reminders that matter to [uid]: every
-/// unacknowledged reminder assigned to them or to the whole group, folded into
-/// a stable string. Any change to this set (new/removed/reassigned, ack, or
-/// trigger time) forces a resync; identical fingerprints skip it entirely.
+/// unacknowledged reminder assigned to them, to the whole group ('Everyone' or
+/// null), folded into a stable string. Any change to this set
+/// (new/removed/reassigned, ack, or trigger time) forces a resync; identical
+/// fingerprints skip it entirely.
 String _relevantFingerprint(List<PlannerModel> reminders, String uid) {
   final relevant = reminders
       .where((r) =>
-          (r.assignedTo == null || r.assignedTo == uid) && !r.isDone)
+          (r.assignedTo == null ||
+              r.assignedTo == uid ||
+              r.assignedTo == 'Everyone') &&
+          !r.isDone)
       .toList()
     ..sort((a, b) => a.id.compareTo(b.id));
 

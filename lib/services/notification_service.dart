@@ -176,6 +176,14 @@ class NotificationService {
   }
 
   // ── EXISTING SPECIFIC TASK REMINDER ──
+  /// Schedules a task/reminder notification to be fired by the OS at exactly
+  /// [scheduledTime] — never earlier, never at creation time. The wall-clock
+  /// [scheduledTime] is anchored into the device's local timezone via
+  /// `tz.TZDateTime.from(..., tz.local)` and registered with
+  /// `AndroidScheduleMode.exactAllowWhileIdle`, so a future `startTime` is
+  /// locked to its exact moment and the system (not the app) wakes the device
+  /// to post it. A [scheduledTime] already in the past is left to the OS to
+  /// fire immediately — the correct behaviour for an overdue reminder.
   Future<void> scheduleNotification({
     required int id,
     required String title,
@@ -215,6 +223,8 @@ class NotificationService {
       title: title,
       body: body,
       payload: payload,
+      // Anchors the reminder to the exact scheduled wall-clock time in the
+      // device's local timezone so a future startTime can never fire early.
       scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
       notificationDetails: details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -339,9 +349,12 @@ class NotificationService {
   /// Reconciles the device's local alarms against the current group reminders
   /// list for [currentUserId] inside [spaceId]:
   ///  - a reminder assigned to the user (or to the whole group via
-  ///    `assignedTo == null`) that is still unacknowledged and triggers in the
-  ///    future is scheduled with the 'Snooze'/'Done' actions — re-scheduling
-  ///    the same id overwrites any prior alarm in place;
+  ///    `assignedTo == null` or `assignedTo == 'Everyone'`) that is still
+  ///    unacknowledged and triggers in the future is scheduled at the EXACT
+  ///    trigger time (see [scheduleNotification]: `tz.TZDateTime.from`
+  ///    + `exactAllowWhileIdle`) with the 'Snooze'/'Done' actions — never fired
+  ///    early at sync time. Re-scheduling the same id overwrites any prior
+  ///    alarm in place;
   ///  - any reminder that is acknowledged, already in the past, or delegated to
   ///    someone else has its alarm cancelled so ghost notifications can never
   ///    fire.
@@ -370,8 +383,10 @@ class NotificationService {
 
     for (final reminder in reminders) {
       final notificationId = groupReminderNotificationId(reminder.id);
+      // Mirrors isGroupTaskRelevantTo: 'Everyone' and null both mean group-wide.
       final targetsCurrentUser = reminder.assignedTo == null ||
-          reminder.assignedTo == currentUserId;
+          reminder.assignedTo == currentUserId ||
+          reminder.assignedTo == 'Everyone';
       final shouldSchedule = targetsCurrentUser &&
           !reminder.isDone &&
           reminder.startTime.isAfter(now);

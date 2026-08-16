@@ -173,6 +173,11 @@ PlannerModel groupTaskFromTodoCollection(TodoCollection collection) =>
 /// `todo_collections` plus their shared Space tasks as single-item cards,
 /// sorted with pending tasks first, then by newest. Personal-only when the
 /// [showGroupTasksProvider] toggle is off.
+///
+/// Only point-in-time checklist items from the Group To-Do tab surface here —
+/// the exact inverse of [isGroupTimeBlocked]. Time-blocked Group Planner tasks
+/// stay on the personal Daily Planner timeline instead of leaking onto this
+/// To-Do list.
 final mergedTodoCollectionsProvider = StreamProvider<List<TodoCollection>>(
   (ref) {
     final uid = _uid();
@@ -196,7 +201,9 @@ final mergedTodoCollectionsProvider = StreamProvider<List<TodoCollection>>(
             perSpace: (spaceId) => FirestoreService.instance
                 .streamGroupTasks(spaceId)
                 .map((tasks) => tasks
-                    .where((t) => isGroupTaskRelevantTo(uid, t))
+                    .where((t) =>
+                        isGroupTaskRelevantTo(uid, t) &&
+                        !isGroupTimeBlocked(t))
                     .map((t) => groupTaskToTodoCollection(t, spaceId))
                     .toList()),
           ).map((merged) {

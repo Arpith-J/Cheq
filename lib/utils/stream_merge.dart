@@ -11,6 +11,20 @@ bool isGroupTaskRelevantTo(String uid, PlannerModel task) =>
     task.assignedTo == uid ||
     task.assignedTo == 'Everyone';
 
+/// Whether a shared task is a genuine time-blocked entry for the Planner
+/// timeline (Group Planner tab + personal dashboard planner). Group Planner
+/// tasks are created with a real `start < end` window AND `isTimeLocked: true`;
+/// Group To-Do checklist items are point-in-time (`start == end`) and never
+/// time-locked. Requiring BOTH guards keeps even legacy checklist items that
+/// still carry a stale +30-minute window off the planner timeline, so they
+/// surface on the dashboard To-Do list instead.
+///
+/// Consumers must use this predicate and its exact inverse to partition the
+/// shared `tasks` subcollection — every relevant group task lands in exactly
+/// one of the two dashboard streams, never both and never dropped.
+bool isGroupTimeBlocked(PlannerModel task) =>
+    task.isTimeLocked && task.startTime.isBefore(task.endTime);
+
 /// Merges a personal [Stream] of [T] with one live per-Space [Stream] of [T]
 /// into a single list stream.
 ///

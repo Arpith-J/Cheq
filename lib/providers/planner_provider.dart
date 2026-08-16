@@ -31,6 +31,12 @@ final firestorePlannerStreamProvider = StreamProvider<List<PlannerModel>>(
 /// to 'Everyone') in every active Space (`spaces/{spaceId}/tasks`), gated by
 /// the [showGroupTasksProvider] toggle. When the toggle is off (or no Spaces
 /// exist yet) it degrades to the personal-only stream.
+///
+/// ONLY time-blocked group tasks (a real `startTime < endTime` window that is
+/// `isTimeLocked`) leak onto the planner timeline. Point-in-time checklist
+/// items from the Group To-Do tab are excluded here — they surface on the
+/// dashboard's To-Do list instead (see `mergedTodoCollectionsProvider`, which
+/// applies the exact inverse of [isGroupTimeBlocked]).
 final mergedPlannerStreamProvider = StreamProvider<List<PlannerModel>>(
   (ref) {
     final user = ref.watch(authStateProvider).value;
@@ -48,8 +54,11 @@ final mergedPlannerStreamProvider = StreamProvider<List<PlannerModel>>(
             idOf: (task) => task.id,
             perSpace: (spaceId) => FirestoreService.instance
                 .streamGroupTasks(spaceId)
-                .map((tasks) =>
-                    tasks.where((t) => isGroupTaskRelevantTo(uid, t)).toList()),
+                .map((tasks) => tasks
+                    .where((t) =>
+                        isGroupTaskRelevantTo(uid, t) &&
+                        isGroupTimeBlocked(t))
+                    .toList()),
           ),
           loading: () => personal,
           error: (_, _) => personal,
