@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:home_widget/home_widget.dart';
 import '../firebase_options.dart';
 import '../models/planner_model.dart';
@@ -1011,6 +1012,53 @@ class FirestoreService {
       }
     } catch (e) {
       debugPrint("Background completion failed for $taskId: $e");
+    }
+  }
+
+  /// Acknowledges a shared Group Reminder from a background isolate (the
+  /// 'Done' notification action). Flips the same `isDone` flag the Group
+  /// Reminders list uses as its acknowledged state, so every member's device
+  /// reconciles its local alarms through the normal sync path. Awards no
+  /// coins — acknowledging a reminder is intentionally not farmable.
+  ///
+  /// Safe to call from a background isolate: Firebase is initialized on
+  /// demand and the active notification is dismissed from the status bar.
+  static Future<void> acknowledgeGroupReminderFromBackground(
+    String spaceId,
+    String reminderId,
+  ) async {
+    if (spaceId.isEmpty || reminderId.isEmpty) return;
+
+    // A background isolate owns a fresh Dart heap, so Firebase.apps is always
+    // empty here. Initialize (and await) BEFORE any Firestore call is made.
+    if (!await _ensureBackgroundFirebase()) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final reminderRef = db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminderId);
+
+      // Mark the reminder acknowledged atomically — only flips if the document
+      // still exists, so a reminder deleted since the notification fired can
+      // never be resurrected.
+      await db.runTransaction((tx) async {
+        final snap = await tx.get(reminderRef);
+        if (!snap.exists) return;
+        tx.update(reminderRef, {'isDone': true});
+      });
+      debugPrint("Background group reminder acknowledged: $reminderId");
+
+      // Dismiss the active notification. The stable id matches the derivation
+      // in NotificationService.groupReminderNotificationId; a fresh plugin
+      // instance is used because this isolate's plugin was never initialized
+      // (mirrors NotificationService.cancelNotification).
+      final isolatePlugin = FlutterLocalNotificationsPlugin();
+      await isolatePlugin.cancel(id: reminderId.hashCode & 0x7fffffff);
+    } catch (e) {
+      debugPrint("Background group reminder acknowledgement failed: $e");
     }
   }
 }
