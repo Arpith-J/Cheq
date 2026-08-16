@@ -4,22 +4,24 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:home_widget/home_widget.dart';
+import 'package:home_widget/home_widget.dart' hide callbackDispatcher;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'firebase_options.dart';
 import 'screens/auth_gate.dart';
+import 'services/background_sync_service.dart';
 import 'services/firestore_service.dart';
-import 'services/group_sync_service.dart';
-import 'services/local_notification_service.dart';
 import 'providers/coins_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/custom_theme_provider.dart';
-import 'providers/notification_settings_provider.dart'; 
+import 'providers/notification_settings_provider.dart';
 import 'providers/planner_provider.dart';
 import 'providers/rewards_provider.dart';
 import 'providers/group_sync_provider.dart';
+import 'providers/group_tasks_provider.dart';
+import 'providers/group_reminders_provider.dart';
+import 'providers/spaces_provider.dart';
 import 'services/notification_service.dart';
 
 final sharedPrefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
@@ -29,43 +31,8 @@ final sharedPrefsProvider = Provider<SharedPreferences>((ref) => throw Unimpleme
 // ---------------------------------------------------------------------------
 
 /// Unique name (and task tag) for the periodic group-sync Workmanager task.
-/// Runs hourly (the Android minimum is 15 minutes).
-const String groupSyncTaskName = 'hourly-group-sync';
-
-/// Workmanager callback dispatcher — invoked in a background isolate whenever
-/// a scheduled task fires. Firebase is initialized on demand inside the isolate
-/// and the group sync hydrates the local offline cache from Firestore. When the
-/// worker detects a genuinely NEW group task (not previously seen on this
-/// device, and assigned to the user or their group), a lightweight local
-/// notification is posted — no FCM involved. Failures are swallowed so the
-/// worker always returns a completion signal to the OS.
-@pragma('vm:entry-point')
-void groupSyncCallbackDispatcher() {
-  Workmanager().executeTask((task, inputData) async {
-    try {
-      final newTasks = await GroupSyncService.instance.syncFromBackground();
-
-      if (newTasks.isNotEmpty) {
-        // Post one local notification per new shared task. The plugin is
-        // lazily initialized per isolate and Android 13+ permission is probed
-        // before posting, keeping the worker cheap and kill-safe.
-        for (final newTask in newTasks) {
-          await LocalNotificationService.instance.showNotification(
-            title: 'New task added in ${newTask.spaceName}',
-            body: '"${newTask.title}"',
-          );
-        }
-      }
-
-      debugPrint('Workmanager [$task]: group sync completed '
-          'with ${newTasks.length} new task(s)');
-      return true;
-    } catch (e) {
-      debugPrint('Workmanager [$task] group sync failed: $e');
-      return false;
-    }
-  });
-}
+/// Runs every 15 minutes — the Android minimum frequency.
+const String groupSyncTaskName = 'group-background-sync';
 
 void main() async {
   // 1. Initialize Flutter bindings
@@ -78,11 +45,16 @@ void main() async {
   // 3. Register the periodic background group-sync worker. Best-effort: a
   //    failure here must never block app boot, so it is guarded separately.
   try {
-    await Workmanager().initialize(groupSyncCallbackDispatcher);
+    await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
+    // Best-effort cleanup of the legacy hourly worker from earlier builds (its
+    // dispatcher no longer exists), so only the 15-minute engine keeps polling.
+    try {
+      await Workmanager().cancelByUniqueName('hourly-group-sync');
+    } catch (_) {}
     await Workmanager().registerPeriodicTask(
       groupSyncTaskName,
       groupSyncTaskName,
-      frequency: const Duration(hours: 1),
+      frequency: const Duration(minutes: 15),
       // `update` keeps the existing schedule if a previous registration used a
       // different frequency, avoiding surprise re-scheduling during dev.
       existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
@@ -120,7 +92,7 @@ void main() async {
       container.read(themeModeProvider.notifier).loadSettings(user.uid);
       // A2. Cache the UID for the background sync worker so it can resolve the
       //     user even when FirebaseAuth hasn't restored its session in-isolate.
-      unawaited(GroupSyncService.instance.cacheUid(user.uid));
+      unawaited(BackgroundSyncService.instance.cacheUid(user.uid));
       // B. Explicitly fetch the cloud UserModel and hydrate the local
       //    economy/stats/badge providers before the first frame, so a fresh
       //    install never renders a Trophy Room or coin balance of 0.
@@ -193,7 +165,7 @@ class _CheqAppState extends ConsumerState<CheqApp> with WidgetsBindingObserver {
 
     // Foreground sync: immediately pull the latest group data from Firestore
     // so the UI updates the moment the user re-opens the app instead of
-    // waiting for the next hourly background sync.
+    // waiting for the next 15-minute background sync.
     _refreshGroupDataOnForeground();
   }
 
@@ -203,8 +175,21 @@ class _CheqAppState extends ConsumerState<CheqApp> with WidgetsBindingObserver {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        await GroupSyncService.instance.cacheUid(uid);
+        await BackgroundSyncService.instance.cacheUid(uid);
       }
+
+      // Invalidate the Spaces + group providers so the UI re-subscribes to
+      // Firestore and immediately reflects the latest shared data the moment
+      // the user re-opens the app — no waiting for the next 15-minute worker.
+      final spaces = ref.read(userSpacesProvider).value;
+      if (spaces != null) {
+        for (final space in spaces) {
+          ref.invalidate(groupTasksProvider(space.id));
+          ref.invalidate(groupRemindersProvider(space.id));
+        }
+      }
+      ref.invalidate(userSpacesProvider);
+
       ref.read(groupSyncProvider.notifier).syncNow();
     } catch (e) {
       debugPrint('Foreground group sync trigger failed: $e');

@@ -83,7 +83,11 @@ class _DailyPlannerScreenState extends ConsumerState<DailyPlannerScreen> with Wi
               
               final isToday = day.year == now.year && day.month == now.month && day.day == now.day;
               final startFrom = isToday ? now : DateTime(day.year, day.month, day.day);
-              final currentTasks = ref.read(selectedDayEntriesProvider);
+              // Group (Space) tasks are time-locked shared documents; exclude them
+              // so neither rescheduler rewrites them into the personal planner.
+              final currentTasks = ref.read(selectedDayEntriesProvider)
+                  .where((t) => t.groupId == null || t.groupId!.isEmpty)
+                  .toList();
               
               final aiSettings = ref.read(aiSettingsProvider);
               bool aiSuccess = false;

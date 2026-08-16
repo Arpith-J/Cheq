@@ -102,6 +102,17 @@ class SettingsScreen extends ConsumerWidget {
                     ref.read(carryOverTasksProvider.notifier).toggle(val);
                   },
                 ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile.adaptive(
+                  activeTrackColor: cs.primary, 
+                  title: const Text('Show Group Tasks on Main Dashboard', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Merge tasks from your Spaces into the Planner and To-Do lists.'),
+                  secondary: Icon(Icons.groups_rounded, color: Theme.of(context).colorScheme.primary),
+                  value: ref.watch(showGroupTasksProvider),
+                  onChanged: (val) {
+                    ref.read(showGroupTasksProvider.notifier).toggle(val);
+                  },
+                ),
                 ListTile(
                   leading: const Icon(Icons.category_rounded),
                   title: const Text("Manage Categories", style: TextStyle(fontWeight: FontWeight.w600)),
