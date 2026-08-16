@@ -46,8 +46,12 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
     final task = PlannerModel(
       id: 'group_${now.millisecondsSinceEpoch}',
       title: text,
+      // A checklist item is point-in-time (start == end), NOT a time window.
+      // This is the discriminator that keeps Group To-Do items off the Group
+      // Planner timeline and the personal Daily Planner, while letting them
+      // surface on the dashboard To-Do list.
       startTime: now,
-      endTime: now.add(const Duration(minutes: 30)),
+      endTime: now,
       // The owning Space is injected into the task so it always lives under
       // the correct `spaces/{spaceId}/tasks` subcollection.
       groupId: widget.spaceId,
