@@ -7,11 +7,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/planner_model.dart';
 import '../../providers/group_tasks_provider.dart';
 import '../../services/firestore_service.dart';
+import '../../utils/stream_merge.dart';
 
 /// The 'Group To-Do' tab for a Space: a shared checklist stored in the `tasks`
 /// subcollection of the Space document. Every member watches the same live
 /// stream, and checking a task off personally awards the standard coin reward
 /// (reward/penalty applied atomically in `toggleGroupTaskCompletion`).
+///
+/// The `tasks` subcollection also holds time-blocked Group Planner entries, so
+/// this tab applies the exact inverse of `isGroupTimeBlocked` (the same
+/// partition used by the personal dashboard's To-Do stream) to show ONLY
+/// point-in-time checklist items. Genuine time windows created in the Group
+/// Planner stay on the Group Planner timeline and never bleed in here.
 class GroupTodoTab extends ConsumerStatefulWidget {
   const GroupTodoTab({super.key, required this.spaceId});
 
@@ -126,22 +133,33 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
                 ),
               ),
             ),
-            data: (tasks) => tasks.isEmpty
-                ? const _GroupTodoEmpty()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                    itemCount: tasks.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (ctx, i) {
-                      final task = tasks[i];
-                      return _GroupTaskTile(
-                        task: task,
-                        isBusy: _busyTaskId == task.id,
-                        onToggle: () => _toggleTask(task),
-                        onDelete: () => _confirmDelete(task),
-                      );
-                    },
-                  ),
+            data: (tasks) {
+              // Mirror the dashboard's To-Do segregation exactly: keep only
+              // non-time-blocked checklist items. `isGroupTimeBlocked` requires
+              // `isTimeLocked` AND a real `start < end` window, so it is the
+              // same predicate — and its inverse — that the personal dashboard
+              // uses to keep Group Planner entries off its To-Do list.
+              final todos = tasks
+                  .where((task) => !isGroupTimeBlocked(task))
+                  .toList();
+
+              return todos.isEmpty
+                  ? const _GroupTodoEmpty()
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      itemCount: todos.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (ctx, i) {
+                        final task = todos[i];
+                        return _GroupTaskTile(
+                          task: task,
+                          isBusy: _busyTaskId == task.id,
+                          onToggle: () => _toggleTask(task),
+                          onDelete: () => _confirmDelete(task),
+                        );
+                      },
+                    );
+            },
           ),
         ),
         _AddTaskBar(
