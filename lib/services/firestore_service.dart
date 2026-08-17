@@ -402,6 +402,52 @@ class FirestoreService {
     }
   }
 
+  /// Checks if the user's Firestore `displayName` field is missing or empty and
+  /// back-fills it from Firebase Auth (or the email prefix as a last resort).
+  /// Called once during boot so legacy documents always have a human-readable
+  /// name for Spaces / Group task assignment.
+  Future<void> ensureDisplayName() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final snapshot = await _userDocRef(user.uid).get();
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() as Map<String, dynamic>?;
+      final existing = data?['displayName'] as String?;
+      if (existing != null && existing.trim().isNotEmpty) return;
+
+      final resolved = user.displayName?.trim();
+      final fallback = user.email != null
+          ? user.email!.split('@').first
+          : 'User';
+      final name = (resolved != null && resolved.isNotEmpty) ? resolved : fallback;
+
+      await _userDocRef(user.uid).set(
+        {'displayName': name},
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint("ensureDisplayName failed: $e");
+    }
+  }
+
+  /// Updates the user's display name in their Firestore profile document.
+  Future<void> updateDisplayName(String name) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _userDocRef(user.uid).set(
+        {'displayName': name.trim()},
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint("Failed to update displayName: $e");
+    }
+  }
+
   Future<void> saveUserSettings(String uid, Map<String, dynamic> settingsData) async {
     try {
       await _userDocRef(uid).set(settingsData, SetOptions(merge: true));
