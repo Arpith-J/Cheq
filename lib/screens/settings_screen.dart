@@ -124,9 +124,9 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: 32),
 
-          // ── APPEARANCE & PLANNER SECTION ──
+          // ── APPEARANCES SECTION ──
           Text(
-            "Appearance & Preferences",
+            "Appearances",
             style: theme.textTheme.titleMedium?.copyWith(
               color: cs.primary,
               fontWeight: FontWeight.bold,
@@ -144,18 +144,9 @@ class SettingsScreen extends ConsumerWidget {
                   title: const Text("Dark Mode", style: TextStyle(fontWeight: FontWeight.w600)),
                   trailing: Switch.adaptive(
                     value: isDarkMode,
-                    activeTrackColor: cs.primary, 
+                    activeTrackColor: cs.primary,
                     onChanged: (value) => ref.read(themeModeProvider.notifier).toggleTheme(),
                   ),
-                ),
-                const Divider(height: 1, indent: 16, endIndent: 16),
-                SwitchListTile.adaptive(
-                  activeTrackColor: cs.primary, 
-                  title: const Text("Pending Task Badges", style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: const Text("Show a red counter on the calendar for unfinished tasks."),
-                  value: notifConfig.showTaskBadges,
-                  onChanged: (val) => notifNotifier.toggleTaskBadges(val),
-                  secondary: const Icon(Icons.looks_one_rounded, color: Colors.redAccent),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 const Padding(
@@ -165,16 +156,45 @@ class SettingsScreen extends ConsumerWidget {
                     children: [
                       Text("App Theme Accent", style: TextStyle(fontWeight: FontWeight.w600)),
                       SizedBox(height: 16),
-                      ThemePickerRow(), 
+                      ThemePickerRow(),
                     ],
                   ),
                 ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // ── PREFERENCES SECTION ──
+          Text(
+            "Preferences",
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: cs.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              children: [
+                SwitchListTile.adaptive(
+                  activeTrackColor: cs.primary,
+                  title: const Text("Pending Task Badges", style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text("Show a red counter on the calendar for unfinished tasks."),
+                  value: notifConfig.showTaskBadges,
+                  onChanged: (val) => notifNotifier.toggleTaskBadges(val),
+                  secondary: const Icon(Icons.looks_one_rounded, color: Colors.redAccent),
+                ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 SwitchListTile.adaptive(
-                  activeTrackColor: cs.primary, 
+                  activeTrackColor: cs.primary,
                   title: const Text('Carry Over Pending Tasks', style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: const Text('Automatically move unfinished tasks from past days to today.'),
-                  secondary: Icon(Icons.next_plan_rounded, color: Theme.of(context).colorScheme.primary),
+                  secondary: Icon(Icons.next_plan_rounded, color: cs.primary),
                   value: ref.watch(carryOverTasksProvider),
                   onChanged: (val) {
                     ref.read(carryOverTasksProvider.notifier).toggle(val);
@@ -182,15 +202,16 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 SwitchListTile.adaptive(
-                  activeTrackColor: cs.primary, 
+                  activeTrackColor: cs.primary,
                   title: const Text('Show Group Tasks on Main Dashboard', style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: const Text('Merge tasks from your Spaces into the Planner and To-Do lists.'),
-                  secondary: Icon(Icons.groups_rounded, color: Theme.of(context).colorScheme.primary),
+                  secondary: Icon(Icons.groups_rounded, color: cs.primary),
                   value: ref.watch(showGroupTasksProvider),
                   onChanged: (val) {
                     ref.read(showGroupTasksProvider.notifier).toggle(val);
                   },
                 ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
                   leading: const Icon(Icons.category_rounded),
                   title: const Text("Manage Categories", style: TextStyle(fontWeight: FontWeight.w600)),
@@ -198,10 +219,74 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () {
                     showModalBottomSheet(
                       context: context,
-                      isScrollControlled: true, // This allows the sheet to push up when the keyboard opens
+                      isScrollControlled: true,
                       builder: (context) => const CategoryManagerSheet(),
                     );
                   },
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile.adaptive(
+                  activeTrackColor: cs.primary,
+                  title: const Text("Morning Overview", style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text("Good ${_getSalutation(notifConfig.morningTime)} $firstName, you have tasks today."),
+                  value: notifConfig.morningEnabled,
+                  onChanged: (val) => notifNotifier.toggleMorning(val),
+                  secondary: const Icon(Icons.wb_sunny_rounded, color: Colors.orange),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 250),
+                  child: notifConfig.morningEnabled
+                      ? ListTile(
+                          contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                          title: const Text("Delivery Time"),
+                          trailing: TextButton(
+                            style: TextButton.styleFrom(
+                              backgroundColor: cs.primaryContainer,
+                              foregroundColor: cs.onPrimaryContainer,
+                            ),
+                            onPressed: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: notifConfig.morningTime,
+                              );
+                              if (picked != null) notifNotifier.updateMorningTime(picked);
+                            },
+                            child: Text(notifConfig.morningTime.format(context)),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                SwitchListTile.adaptive(
+                  activeTrackColor: cs.primary,
+                  title: const Text("Evening Review", style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text("Good ${_getSalutation(notifConfig.eveningTime)} $firstName, let's review your day."),
+                  value: notifConfig.eveningEnabled,
+                  onChanged: (val) => notifNotifier.toggleEvening(val),
+                  secondary: const Icon(Icons.nights_stay_rounded, color: Colors.indigoAccent),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 250),
+                  child: notifConfig.eveningEnabled
+                      ? ListTile(
+                          contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                          title: const Text("Delivery Time"),
+                          trailing: TextButton(
+                            style: TextButton.styleFrom(
+                              backgroundColor: cs.primaryContainer,
+                              foregroundColor: cs.onPrimaryContainer,
+                            ),
+                            onPressed: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: notifConfig.eveningTime,
+                              );
+                              if (picked != null) notifNotifier.updateEveningTime(picked);
+                            },
+                            child: Text(notifConfig.eveningTime.format(context)),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ],
             ),
@@ -229,95 +314,6 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
 
-          const SizedBox(height: 32),
-
-          // ── DAILY BRIEFINGS SECTION ──
-          Text(
-            "Daily Briefings",
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: cs.primary,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            elevation: 0,
-            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Column(
-              children: [
-                // Morning Overview Toggle
-                SwitchListTile.adaptive(
-                  activeTrackColor: cs.primary, 
-                  title: const Text("Morning Overview", style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text("Good ${_getSalutation(notifConfig.morningTime)} $firstName, you have tasks today."),
-                  value: notifConfig.morningEnabled,
-                  onChanged: (val) => notifNotifier.toggleMorning(val),
-                  secondary: const Icon(Icons.wb_sunny_rounded, color: Colors.orange),
-                ),
-                // Morning Time Picker
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 250),
-                  child: notifConfig.morningEnabled
-                      ? ListTile(
-                          contentPadding: const EdgeInsets.only(left: 72, right: 16),
-                          title: const Text("Delivery Time"),
-                          trailing: TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: cs.primaryContainer,
-                              foregroundColor: cs.onPrimaryContainer,
-                            ),
-                            onPressed: () async {
-                              final picked = await showTimePicker(
-                                context: context,
-                                initialTime: notifConfig.morningTime,
-                              );
-                              if (picked != null) notifNotifier.updateMorningTime(picked);
-                            },
-                            child: Text(notifConfig.morningTime.format(context)),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-
-                const Divider(height: 1, indent: 16, endIndent: 16),
-
-                // Evening Review Toggle
-                SwitchListTile.adaptive(
-                  activeTrackColor: cs.primary,
-                  title: const Text("Evening Review", style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text("Good ${_getSalutation(notifConfig.eveningTime)} $firstName, let's review your day."),
-                  value: notifConfig.eveningEnabled,
-                  onChanged: (val) => notifNotifier.toggleEvening(val),
-                  secondary: const Icon(Icons.nights_stay_rounded, color: Colors.indigoAccent),
-                ),
-                // Evening Time Picker
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 250),
-                  child: notifConfig.eveningEnabled
-                      ? ListTile(
-                          contentPadding: const EdgeInsets.only(left: 72, right: 16),
-                          title: const Text("Delivery Time"),
-                          trailing: TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: cs.primaryContainer,
-                              foregroundColor: cs.onPrimaryContainer,
-                            ),
-                            onPressed: () async {
-                              final picked = await showTimePicker(
-                                context: context,
-                                initialTime: notifConfig.eveningTime,
-                              );
-                              if (picked != null) notifNotifier.updateEveningTime(picked);
-                            },
-                            child: Text(notifConfig.eveningTime.format(context)),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 32),
         ],
       ),
