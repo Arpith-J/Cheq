@@ -246,6 +246,11 @@ class _GroupPlannerTaskTileState extends ConsumerState<_GroupPlannerTaskTile> {
 
   PlannerModel get task => widget.task;
 
+  /// The current user's completion state is driven by the per-member
+  /// `completedBy` array rather than the aggregate `isDone` flag.
+  bool get _iCompleted =>
+      task.completedBy.contains(FirebaseAuth.instance.currentUser?.uid);
+
   String _formatTime(DateTime dt) {
     final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final minute = dt.minute.toString().padLeft(2, '0');
@@ -428,6 +433,12 @@ class _GroupPlannerTaskTileState extends ConsumerState<_GroupPlannerTaskTile> {
                                     decorationThickness: 1.5,
                                   ),
                                 ),
+                                if (task.completedBy.isNotEmpty)
+                                  _CompletedByRow(
+                                    completedBy: task.completedBy,
+                                    memberNames: memberNames,
+                                    spaceId: widget.spaceId,
+                                  ),
                               ],
                             ),
                           ),
@@ -435,7 +446,7 @@ class _GroupPlannerTaskTileState extends ConsumerState<_GroupPlannerTaskTile> {
                             width: 24,
                             height: 24,
                             child: Checkbox(
-                              value: task.isDone,
+                              value: _iCompleted,
                               onChanged:
                                   widget.isBusy ? null : (_) => widget.onToggle(),
                               shape: RoundedRectangleBorder(
@@ -567,6 +578,54 @@ class _GroupPlannerTaskTileState extends ConsumerState<_GroupPlannerTaskTile> {
               fontWeight: FontWeight.bold,
               color: fg,
               letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Completed-by row — renders the names of members who checked the task off
+// ---------------------------------------------------------------------------
+
+class _CompletedByRow extends ConsumerWidget {
+  const _CompletedByRow({
+    required this.completedBy,
+    required this.memberNames,
+    required this.spaceId,
+  });
+
+  final List<String> completedBy;
+  final Map<String, String> memberNames;
+  final String spaceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Resolve UIDs to display names using the same map the planner already
+    // has, falling back to a short UID prefix.
+    final names = <String>[];
+    for (final uid in completedBy) {
+      names.add(memberNames[uid] ?? uid.substring(0, uid.length.clamp(0, 6)));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_rounded, size: 12, color: Colors.green),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              'Finished by: ${names.join(', ')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: Colors.green.shade700,
+              ),
             ),
           ),
         ],

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/planner_model.dart';
 import '../../providers/group_tasks_provider.dart';
+import '../../providers/space_members_provider.dart';
 import '../../services/firestore_service.dart';
 import '../../utils/stream_merge.dart';
 
@@ -152,6 +153,7 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
                       itemBuilder: (ctx, i) {
                         final task = todos[i];
                         return _GroupTaskTile(
+                          spaceId: widget.spaceId,
                           task: task,
                           isBusy: _busyTaskId == task.id,
                           onToggle: () => _toggleTask(task),
@@ -176,22 +178,37 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
 // Shared task row
 // ---------------------------------------------------------------------------
 
-class _GroupTaskTile extends StatelessWidget {
+class _GroupTaskTile extends ConsumerWidget {
   const _GroupTaskTile({
+    required this.spaceId,
     required this.task,
     required this.isBusy,
     required this.onToggle,
     required this.onDelete,
   });
 
+  final String spaceId;
   final PlannerModel task;
   final bool isBusy;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
+    final iCompleted =
+        task.completedBy.contains(FirebaseAuth.instance.currentUser?.uid);
+    final memberNames = ref.watch(spaceMembersProvider(spaceId)).value ??
+        const <String, String>{};
+
+    // Resolve completedBy UIDs into display names for the subtitle.
+    String? completedByText;
+    if (task.completedBy.isNotEmpty) {
+      final names = task.completedBy
+          .map((uid) => memberNames[uid] ?? uid.substring(0, uid.length.clamp(0, 6)))
+          .toList();
+      completedByText = 'Finished by: ${names.join(', ')}';
+    }
 
     return Card(
       elevation: 0,
@@ -204,7 +221,7 @@ class _GroupTaskTile extends StatelessWidget {
       child: ListTile(
         onLongPress: onDelete,
         leading: Checkbox(
-          value: task.isDone,
+          value: iCompleted,
           onChanged: isBusy ? null : (_) => onToggle(),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         ),
@@ -220,6 +237,27 @@ class _GroupTaskTile extends StatelessWidget {
                 task.isDone ? TextDecoration.lineThrough : TextDecoration.none,
           ),
         ),
+        subtitle: completedByText != null
+            ? Row(
+                children: [
+                  Icon(Icons.check_circle_rounded,
+                      size: 12, color: Colors.green),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      completedByText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : null,
       ),
     );
   }
