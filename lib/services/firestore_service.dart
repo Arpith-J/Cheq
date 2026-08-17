@@ -821,6 +821,7 @@ class FirestoreService {
   /// Toggles a shared task's completion and applies the personal coin economy
   /// in a single atomic WriteBatch:
   ///  - flips `isDone` on `spaces/{spaceId}/tasks/{taskId}`;
+  ///  - adds/removes the user's UID from the `completedBy` array;
   ///  - when marking done, awards the standard per-item reward
   ///    ([todoItemCoins] = +5) to the tapping user's `coins` field on
   ///    `users/{uid}`;
@@ -843,7 +844,12 @@ class FirestoreService {
 
       final coinDelta = task.isDone ? -todoItemCoins : todoItemCoins;
 
-      batch.update(taskRef, {'isDone': !task.isDone});
+      batch.update(taskRef, {
+        'isDone': !task.isDone,
+        'completedBy': task.isDone
+            ? FieldValue.arrayRemove([uid])
+            : FieldValue.arrayUnion([uid]),
+      });
       batch.update(_userDocRef(uid), {
         'coins': FieldValue.increment(coinDelta),
       });
