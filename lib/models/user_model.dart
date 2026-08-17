@@ -3,7 +3,7 @@ import 'star_model.dart';
 
 class UserModel {
   final String uid;
-  final String displayName;
+  final String? displayName;
   final String email;
   final String? photoUrl;
   final int coins;
@@ -33,7 +33,7 @@ class UserModel {
 
   const UserModel({
     required this.uid,
-    required this.displayName,
+    this.displayName,
     required this.email,
     this.photoUrl,
     this.coins = 0,
@@ -120,7 +120,7 @@ class UserModel {
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
         uid: map['uid'] as String,
-        displayName: map['displayName'] as String,
+        displayName: map['displayName'] as String?,
         email: map['email'] as String,
         photoUrl: map['photoUrl'] as String?,
         coins: (map['coins'] as int?) ?? 0,

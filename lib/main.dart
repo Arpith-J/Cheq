@@ -93,6 +93,8 @@ void main() async {
       // A2. Cache the UID for the background sync worker so it can resolve the
       //     user even when FirebaseAuth hasn't restored its session in-isolate.
       unawaited(BackgroundSyncService.instance.cacheUid(user.uid));
+      // A3. Auto-capture displayName from Firebase Auth for legacy documents.
+      unawaited(FirestoreService.instance.ensureDisplayName());
       // B. Explicitly fetch the cloud UserModel and hydrate the local
       //    economy/stats/badge providers before the first frame, so a fresh
       //    install never renders a Trophy Room or coin balance of 0.

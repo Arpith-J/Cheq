@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/theme_provider.dart';
 import '../providers/notification_settings_provider.dart';
+import '../services/firestore_service.dart';
 import '../widgets/theme_picker_row.dart';
 import '../widgets/settings/ai_settings_card.dart';
 import '../providers/task_settings_provider.dart';
@@ -19,6 +20,53 @@ class SettingsScreen extends ConsumerWidget {
     if (time.hour >= 12 && time.hour < 16) return "afternoon";
     if (time.hour >= 16 && time.hour < 20) return "evening";
     return "night";
+  }
+
+  void _showEditNameDialog(BuildContext context, User? user) {
+    final controller = TextEditingController(
+      text: user?.displayName ?? '',
+    );
+    final cs = Theme.of(context).colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Display Name'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            hintText: 'Your name',
+            filled: true,
+            fillColor: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          onSubmitted: (_) => _saveName(ctx, controller),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => _saveName(ctx, controller),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveName(BuildContext ctx, TextEditingController controller) async {
+    final name = controller.text.trim();
+    if (name.isEmpty) return;
+
+    await FirestoreService.instance.updateDisplayName(name);
+    if (ctx.mounted) Navigator.pop(ctx);
   }
 
   @override
@@ -46,6 +94,36 @@ class SettingsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          // ── PROFILE SECTION ──
+          Text(
+            "Profile",
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: cs.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: cs.primaryContainer,
+                child: Icon(Icons.person_rounded, color: cs.primary),
+              ),
+              title: Text(
+                user?.displayName ?? 'No name set',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(user?.email ?? ''),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _showEditNameDialog(context, user),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
           // ── APPEARANCE & PLANNER SECTION ──
           Text(
             "Appearance & Preferences",
