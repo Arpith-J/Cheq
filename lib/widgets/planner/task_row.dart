@@ -1,10 +1,12 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/planner_model.dart';
-import '../../providers/planner_provider.dart';
 import '../../providers/notification_settings_provider.dart';
+import '../../providers/planner_provider.dart';
 import '../../providers/rewards_provider.dart';
+import '../../providers/spaces_provider.dart';
 import '../../services/firestore_service.dart';
 import 'add_task_sheet.dart';
 
@@ -51,6 +53,15 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
     final minute = dt.minute.toString().padLeft(2, '0');
     final period = dt.hour < 12 ? 'AM' : 'PM';
     return '$hour:$minute $period';
+  }
+
+  String? _spaceNameFor(String spaceId) {
+    final spaces = ref.watch(userSpacesProvider).value;
+    if (spaces == null) return null;
+    for (final space in spaces) {
+      if (space.id == spaceId) return space.name;
+    }
+    return null;
   }
 
   Future<int> _showDeleteConfirmDialog(BuildContext context) async {
@@ -105,6 +116,11 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
     final hasCategory = entry.categoryName != null && entry.categoryColor != null;
     final categoryColor = hasCategory ? Color(entry.categoryColor!) : null;
 
+    // --- GROUP TASK DETECTION ---
+    final groupId = entry.groupId;
+    final isGroupTask = groupId != null && groupId.isNotEmpty;
+    final spaceName = isGroupTask ? _spaceNameFor(groupId) : null;
+
     // Determine base border colors
     final baseBorderColor = isOverdue ? cs.error.withValues(alpha: 0.6) : cs.outlineVariant.withValues(alpha: 0.5);
     final baseBorderWidth = isOverdue ? 1.5 : 1.0;
@@ -124,7 +140,11 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
       ),
       confirmDismiss: (direction) async {
         try {
-          await FirestoreService.instance.deleteTask(entry.id);
+          if (isGroupTask) {
+            await FirestoreService.instance.deleteGroupTask(groupId, entry.id);
+          } else {
+            await FirestoreService.instance.deleteTask(entry.id);
+          }
           syncNativeAlarms(ref);
           return true; 
         } catch (e) {
@@ -165,7 +185,9 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
               onLongPress: () async {
                 final action = await _showDeleteConfirmDialog(context);
                 if (action > 0 && mounted) {
-                  if (action == 2 && entry.repeatGroupId != null) {
+                  if (isGroupTask) {
+                    await FirestoreService.instance.deleteGroupTask(groupId, entry.id);
+                  } else if (action == 2 && entry.repeatGroupId != null) {
                     await FirestoreService.instance.deleteRecurringTaskGroup(entry.repeatGroupId!, entry.startTime);
                   } else {
                     await FirestoreService.instance.deleteTask(entry.id);
@@ -218,7 +240,7 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                                         children: [
                                           
                                           // --- FIXED: Row instead of Wrap for IntrinsicHeight safety ---
-                                          if (isOverdue || hasCategory)
+                                          if (isOverdue || hasCategory || isGroupTask)
                                             Padding(
                                               padding: const EdgeInsets.only(bottom: 6),
                                               child: Row(
@@ -278,6 +300,39 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                                                         ),
                                                       ),
                                                     ),
+                                                  if (isGroupTask && spaceName != null)
+                                                    Flexible(
+                                                      child: Container(
+                                                        margin: const EdgeInsets.only(right: 6),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: cs.secondaryContainer.withValues(alpha: entry.isDone ? 0.25 : 0.55),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(
+                                                            color: cs.secondary.withValues(alpha: entry.isDone ? 0.15 : 0.3),
+                                                          ),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            Icon(Icons.groups_rounded, size: 11, color: cs.onSecondaryContainer.withValues(alpha: entry.isDone ? 0.4 : 0.85)),
+                                                            const SizedBox(width: 4),
+                                                            Flexible(
+                                                              child: Text(
+                                                                spaceName,
+                                                                overflow: TextOverflow.ellipsis,
+                                                                style: TextStyle(
+                                                                  fontSize: 9,
+                                                                  fontWeight: FontWeight.bold,
+                                                                  color: cs.onSecondaryContainer.withValues(alpha: entry.isDone ? 0.4 : 0.85),
+                                                                  letterSpacing: 0.5,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
                                                 ],
                                               ),
                                             ),
@@ -310,6 +365,20 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                                     child: Checkbox(
                                       value: entry.isDone,
                                       onChanged: (bool? isChecked) async {
+                                        if (isGroupTask) {
+                                          final uid = FirebaseAuth.instance.currentUser?.uid;
+                                          if (uid != null) {
+                                            await FirestoreService.instance
+                                                .toggleGroupTaskCompletion(
+                                              spaceId: groupId,
+                                              task: entry,
+                                              uid: uid,
+                                            );
+                                          }
+                                          syncNativeAlarms(ref);
+                                          return;
+                                        }
+
                                         final isNowDone = isChecked ?? false;
 
                                         if (isNowDone && !entry.isDone) {
@@ -400,38 +469,39 @@ class _TaskRowState extends ConsumerState<TaskRow> with SingleTickerProviderStat
                               ],
                             ),
                             const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(Icons.sync_rounded, size: 14, color: cs.primary),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Repeats: ${entry.repeatInterval.name.toUpperCase()}',
-                                  style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
-                                ),
-                                const Spacer(),
-                                TextButton.icon(
-                                  style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            if (entry.groupId == null)
+                              Row(
+                                children: [
+                                  Icon(Icons.sync_rounded, size: 14, color: cs.primary),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Repeats: ${entry.repeatInterval.name.toUpperCase()}',
+                                    style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
                                   ),
-                                  onPressed: () {
-                                    showModalBottomSheet(
-                                      context: context,
-                                      isScrollControlled: true,
-                                      useSafeArea: true,
-                                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-                                      builder: (_) => UncontrolledProviderScope(
-                                        container: ProviderScope.containerOf(context),
-                                        child: AddTaskSheet(initialEntry: entry),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.edit_rounded, size: 14),
-                                  label: const Text('Edit', style: TextStyle(fontSize: 12)),
-                                ),
-                              ],
-                            ),
+                                  const Spacer(),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    onPressed: () {
+                                      showModalBottomSheet(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        useSafeArea: true,
+                                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+                                        builder: (_) => UncontrolledProviderScope(
+                                          container: ProviderScope.containerOf(context),
+                                          child: AddTaskSheet(initialEntry: entry),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.edit_rounded, size: 14),
+                                    label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                       ),

@@ -1,10 +1,13 @@
 // lib/screens/todo_list_screen.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
+import '../providers/spaces_provider.dart';
 import '../providers/todo_collection_provider.dart';
+import '../services/firestore_service.dart';
 
 // ---------------------------------------------------------------------------
 // TodoListScreen with Custom 4-Tab Segregation Header
@@ -15,7 +18,7 @@ class TodoListScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final collectionsAsync = ref.watch(todoCollectionsProvider);
+    final collectionsAsync = ref.watch(mergedTodoCollectionsProvider);
 
     return DefaultTabController(
       length: 4,
@@ -238,6 +241,8 @@ class _SingleTaskLineItem extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
     final item = task.items.first;
+    final isGroup = task.groupId != null && task.groupId!.isNotEmpty;
+    final spaceName = isGroup ? _spaceNameFor(ref, task.groupId!) : null;
 
     return Card(
       elevation: 0,
@@ -250,7 +255,7 @@ class _SingleTaskLineItem extends ConsumerWidget {
       child: ListTile(
         leading: Checkbox(
           value: item.isDone,
-          onChanged: (_) => ref.read(todoCollectionNotifierProvider.notifier).toggleItem(task.id, item.id, item.isDone),
+          onChanged: (_) => _toggleTask(ref, task, item),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         ),
         title: Text(
@@ -262,6 +267,31 @@ class _SingleTaskLineItem extends ConsumerWidget {
             decoration: item.isDone ? TextDecoration.lineThrough : TextDecoration.none,
           ),
         ),
+        subtitle: isGroup && spaceName != null
+            ? Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.groups_rounded, size: 13, color: cs.onSecondaryContainer.withValues(alpha: item.isDone ? 0.4 : 0.85)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        spaceName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.4,
+                          color: cs.onSecondaryContainer.withValues(alpha: item.isDone ? 0.4 : 0.85),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : null,
         onLongPress: () async {
           final confirmed = await showDialog<bool>(
             context: context,
@@ -275,11 +305,40 @@ class _SingleTaskLineItem extends ConsumerWidget {
             ),
           );
           if (confirmed == true) {
-            await ref.read(todoCollectionNotifierProvider.notifier).deleteCollection(task.id);
+            if (isGroup) {
+              await FirestoreService.instance.deleteGroupTask(task.groupId!, task.id);
+            } else {
+              await ref.read(todoCollectionNotifierProvider.notifier).deleteCollection(task.id);
+            }
           }
         },
       ),
     );
+  }
+
+  String? _spaceNameFor(WidgetRef ref, String spaceId) {
+    final spaces = ref.watch(userSpacesProvider).value;
+    if (spaces == null) return null;
+    for (final space in spaces) {
+      if (space.id == spaceId) return space.name;
+    }
+    return null;
+  }
+
+  Future<void> _toggleTask(WidgetRef ref, TodoCollection task, TodoItem item) async {
+    if (task.groupId != null && task.groupId!.isNotEmpty) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      await FirestoreService.instance.toggleGroupTaskCompletion(
+        spaceId: task.groupId!,
+        task: groupTaskFromTodoCollection(task),
+        uid: uid,
+      );
+      return;
+    }
+    await ref
+        .read(todoCollectionNotifierProvider.notifier)
+        .toggleItem(task.id, item.id, item.isDone);
   }
 }
 

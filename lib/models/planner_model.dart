@@ -15,6 +15,10 @@ class PlannerModel {
   final String? repeatGroupId;
   final String? categoryName;
   final int? categoryColor;
+  final String? groupId; // Group the task belongs to (null = personal/private)
+  final String? assignedTo; // User UID this task is assigned to (null = creator)
+  final DateTime? createdAt; // When the task was added (used to order group tasks)
+  final List<String> completedBy; // UIDs of members who have marked this task done
 
   const PlannerModel({
     required this.id,
@@ -31,6 +35,10 @@ class PlannerModel {
     this.repeatGroupId,
     this.categoryName,
     this.categoryColor,
+    this.groupId,
+    this.assignedTo,
+    this.createdAt,
+    this.completedBy = const [],
   });
 
   PlannerModel copyWith({
@@ -48,6 +56,10 @@ class PlannerModel {
     String? repeatGroupId,
     String? categoryName,
     int? categoryColor,
+    String? groupId,
+    String? assignedTo,
+    DateTime? createdAt,
+    List<String>? completedBy,
   }) {
     return PlannerModel(
       id: id ?? this.id,
@@ -64,6 +76,10 @@ class PlannerModel {
       repeatGroupId: repeatGroupId ?? this.repeatGroupId,
       categoryName: categoryName ?? this.categoryName,
       categoryColor: categoryColor ?? this.categoryColor,
+      groupId: groupId ?? this.groupId,
+      assignedTo: assignedTo ?? this.assignedTo,
+      createdAt: createdAt ?? this.createdAt,
+      completedBy: completedBy ?? this.completedBy,
     );
   }
 
@@ -83,6 +99,10 @@ class PlannerModel {
       'repeatGroupId': repeatGroupId,
       'categoryName': categoryName,
       'categoryColor': categoryColor,
+      'groupId': groupId,
+      'assignedTo': assignedTo,
+      'createdAt': createdAt?.toIso8601String(),
+      'completedBy': completedBy,
     };
   }
 
@@ -107,6 +127,19 @@ class PlannerModel {
       repeatGroupId: map['repeatGroupId'] as String?,
       categoryName: map['categoryName'] as String?,
       categoryColor: map['categoryColor'] as int?,
+      groupId: map['groupId'] as String?,
+      assignedTo: map['assignedTo'] as String?,
+      createdAt: _parseDate(map['createdAt']),
+      completedBy: (map['completedBy'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
     );
+  }
+
+  static DateTime? _parseDate(dynamic value) {
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 }

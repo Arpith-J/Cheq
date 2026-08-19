@@ -3,7 +3,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/planner_model.dart';
+import '../services/firestore_service.dart';
+import '../utils/stream_merge.dart';
 import 'rewards_provider.dart';
+import 'spaces_provider.dart';
+import 'task_settings_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Models
@@ -13,27 +18,35 @@ class TodoItem {
   final String id;
   final String text;
   final bool isDone;
+  final String? groupId; // Group the item belongs to (null = personal/private)
+  final String? assignedTo; // User UID this item is assigned to (null = creator)
 
   const TodoItem({
     required this.id,
     required this.text,
     required this.isDone,
+    this.groupId,
+    this.assignedTo,
   });
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'text': text,
         'isDone': isDone,
+        'groupId': groupId,
+        'assignedTo': assignedTo,
       };
 
   factory TodoItem.fromMap(Map<String, dynamic> map) => TodoItem(
         id: map['id'] as String,
         text: map['text'] as String,
         isDone: (map['isDone'] as bool?) ?? false,
+        groupId: map['groupId'] as String?,
+        assignedTo: map['assignedTo'] as String?,
       );
 
   TodoItem copyWith({bool? isDone}) =>
-      TodoItem(id: id, text: text, isDone: isDone ?? this.isDone);
+      TodoItem(id: id, text: text, isDone: isDone ?? this.isDone, groupId: groupId, assignedTo: assignedTo);
 }
 
 class TodoCollection {
@@ -44,6 +57,8 @@ class TodoCollection {
   final bool isArchived;
   final List<TodoItem> items;
   final int coinsReward;
+  final String? groupId; // Group this collection belongs to (null = personal)
+  final String? assignedTo; // User UID assigned to this collection (null = creator)
 
   const TodoCollection({
     required this.id,
@@ -53,6 +68,8 @@ class TodoCollection {
     required this.isArchived,
     required this.items,
     required this.coinsReward,
+    this.groupId,
+    this.assignedTo,
   });
 
   // Business Logic: Differentiate single line Tasks from compound Lists
@@ -72,6 +89,8 @@ class TodoCollection {
           .map((e) => TodoItem.fromMap(e as Map<String, dynamic>))
           .toList(),
       coinsReward: (data['coinsReward'] as int?) ?? 10,
+      groupId: data['groupId'] as String?,
+      assignedTo: data['assignedTo'] as String?,
     );
   }
 }
@@ -105,6 +124,103 @@ final todoCollectionsProvider = StreamProvider<List<TodoCollection>>((ref) {
       .snapshots()
       .map((snap) => snap.docs.map(TodoCollection.fromDoc).toList());
 });
+
+// ---------------------------------------------------------------------------
+// Group task bridging — shared `spaces/{spaceId}/tasks` rendered as personal
+// To-Do entries on the main dashboard, gated by the showGroupTasks toggle.
+// ---------------------------------------------------------------------------
+
+/// Converts a shared [PlannerModel] into a single-item [TodoCollection] so it
+/// renders like a personal quick task. The [groupId] keeps it visually tagged
+/// as collaborative, and every toggle is routed back to the Space document
+/// (never to the personal `users/{uid}/todo_collections` collection).
+TodoCollection groupTaskToTodoCollection(PlannerModel task, String spaceId) {
+  final item = TodoItem(
+    id: task.id,
+    text: task.title,
+    isDone: task.isDone,
+    groupId: task.groupId ?? spaceId,
+    assignedTo: task.assignedTo,
+  );
+  return TodoCollection(
+    id: task.id,
+    title: task.title,
+    createdAt: task.createdAt ?? task.startTime,
+    archivedAt: task.isDone ? DateTime.now() : null,
+    isArchived: task.isDone,
+    items: [item],
+    coinsReward: 0,
+    groupId: task.groupId ?? spaceId,
+    assignedTo: task.assignedTo,
+  );
+}
+
+/// Reconstructs the shared task document from a [TodoCollection] produced by
+/// [groupTaskToTodoCollection], for routing toggles back through
+/// [FirestoreService.toggleGroupTaskCompletion].
+PlannerModel groupTaskFromTodoCollection(TodoCollection collection) =>
+    PlannerModel(
+      id: collection.id,
+      title: collection.title,
+      startTime: collection.createdAt,
+      endTime: collection.createdAt,
+      isDone: collection.items.isNotEmpty ? collection.items.first.isDone : false,
+      groupId: collection.groupId,
+      assignedTo: collection.assignedTo,
+    );
+
+/// Merged To-Do stream shown on the main dashboard: the user's personal
+/// `todo_collections` plus their shared Space tasks as single-item cards,
+/// sorted with pending tasks first, then by newest. Personal-only when the
+/// [showGroupTasksProvider] toggle is off.
+///
+/// Only point-in-time checklist items from the Group To-Do tab surface here —
+/// the exact inverse of [isGroupTimeBlocked]. Time-blocked Group Planner tasks
+/// stay on the personal Daily Planner timeline instead of leaking onto this
+/// To-Do list.
+final mergedTodoCollectionsProvider = StreamProvider<List<TodoCollection>>(
+  (ref) {
+    final uid = _uid();
+    if (uid == null) return const Stream.empty();
+
+    final personal = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('todo_collections')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map(TodoCollection.fromDoc).toList());
+
+    if (!ref.watch(showGroupTasksProvider)) return personal;
+
+    return ref.watch(userSpacesProvider).when(
+          data: (spaces) => mergeSpacesStreams<TodoCollection>(
+            personal: personal,
+            spaces: spaces,
+            idOf: (col) => col.id,
+            perSpace: (spaceId) => FirestoreService.instance
+                .streamGroupTasks(spaceId)
+                .map((tasks) => tasks
+                    .where((t) =>
+                        isGroupTaskRelevantTo(uid, t) &&
+                        !isGroupTimeBlocked(t))
+                    .map((t) => groupTaskToTodoCollection(t, spaceId))
+                    .toList()),
+          ).map((merged) {
+            final sorted = [...merged]
+              ..sort((a, b) {
+                final aDone = a.isArchived ? 1 : 0;
+                final bDone = b.isArchived ? 1 : 0;
+                if (aDone != bDone) return aDone.compareTo(bDone);
+                return b.createdAt.compareTo(a.createdAt);
+              });
+            return sorted;
+          }),
+          loading: () => personal,
+          error: (_, _) => personal,
+        );
+  },
+);
 
 final completedTodoCollectionsProvider = Provider<List<TodoCollection>>((ref) {
   final asyncCollections = ref.watch(todoCollectionsProvider);

@@ -1,18 +1,17 @@
 // lib/screens/main_scaffold.dart
 
-import 'dart:async';
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
-import 'rewards_screen.dart';
+import 'spaces_screen.dart';
 import '../providers/coins_provider.dart';
 import '../providers/rewards_provider.dart';
 import '../services/firestore_service.dart';
 import '../widgets/app_side_drawer.dart';
+import '../widgets/flashing_coin_pill.dart';
 
 // ---------------------------------------------------------------------------
 // MainScaffold
@@ -72,12 +71,12 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   static const List<Widget> _screens = [
     TodoListScreen(),
     DailyPlannerScreen(),
-    RewardsScreen(),
+    SpacesScreen(),
   ];
 
   static const List<_TabItem> _tabs = [
     _TabItem(
-      label:      'To-Do',
+      label:      'ToDo',
       icon:       Icons.checklist_rounded,
       activeIcon: Icons.checklist_rtl_rounded,
     ),
@@ -87,9 +86,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
       activeIcon: Icons.calendar_today_rounded,
     ),
     _TabItem(
-      label:      'Rewards',
-      icon:       Icons.emoji_events_outlined,
-      activeIcon: Icons.emoji_events_rounded,
+      label:      'Spaces',
+      icon:       Icons.groups_outlined,
+      activeIcon: Icons.groups_rounded,
     ),
   ];
 
@@ -161,19 +160,20 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
           // The ValueKey is CRITICAL. It tells Flutter the text actually changed so it triggers the animation
           child: SizedBox(
             key: ValueKey<int>(_selectedIndex),
-            width: 120, // Wide enough to hold 'Planner' and 'Rewards' without wrapping
+            width: 120, // Wide enough to hold 'Planner' and 'Spaces' without wrapping
             child: Text(
-              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Rewards'),
+              _selectedIndex == 0 ? 'Todo' : (_selectedIndex == 1 ? 'Planner' : 'Spaces'),
               style: const TextStyle(fontWeight: FontWeight.bold), 
             ),
           ),
         ),
 
-        // Right — context-aware coin pill. Always rendered so it can flash on
-        // balance changes; visibility is driven internally (Rewards tab keeps
-        // it pinned visible, Todo/Planner hide it except for flashes).
+        // Right — coin balance pill. Hidden by default and only flashing for
+        // 2 seconds when the balance increases, so the earned economy stays
+        // out of sight on the main tabs (Rewards lives in the side drawer and
+        // shows the permanently visible CoinPill on Bundles/Constellation).
         actions: [
-          _CoinPill(selectedIndex: _selectedIndex),
+          const FlashingCoinPill(),
           const SizedBox(width: 16),
         ],
       ),
@@ -262,133 +262,4 @@ class _TabItem {
   final String   label;
   final IconData icon;
   final IconData activeIcon;
-}
-
-// ---------------------------------------------------------------------------
-// _CoinPill — context-aware coin balance in the AppBar
-// ---------------------------------------------------------------------------
-//
-// Permanently visible on the Rewards tab (index 2). On the To-Do and
-// Planner tabs it stays hidden and only flashes in temporarily whenever the
-// live coin balance changes, fading back out after 2 seconds.
-
-class _CoinPill extends ConsumerStatefulWidget {
-  const _CoinPill({required this.selectedIndex});
-
-  final int selectedIndex;
-
-  @override
-  ConsumerState<_CoinPill> createState() => _CoinPillState();
-}
-
-class _CoinPillState extends ConsumerState<_CoinPill>
-    with SingleTickerProviderStateMixin {
-  static const int _rewardsTabIndex = 2;
-
-  late final AnimationController _controller;
-  late final Animation<double>   _opacity;
-  Timer? _hideTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 250),
-      value: widget.selectedIndex == _rewardsTabIndex ? 1.0 : 0,
-    );
-    _opacity = _controller;
-  }
-
-  @override
-  void didUpdateWidget(_CoinPill oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.selectedIndex == _rewardsTabIndex) {
-      // Rewards tab — force fully visible.
-      _hideTimer?.cancel();
-      _controller.value = 1.0;
-    } else if (oldWidget.selectedIndex == _rewardsTabIndex) {
-      // Left the Rewards tab — fade back to hidden.
-      _controller.value = 0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _flash() {
-    if (!mounted) return;
-    _hideTimer?.cancel();
-    _controller.forward(from: 0);
-    _hideTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted && widget.selectedIndex != _rewardsTabIndex) {
-        _controller.reverse();
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final coins = ref.watch(coinsProvider).value ?? 0;
-
-    ref.listen<AsyncValue<int>>(coinsProvider, (previous, next) {
-      final prev = previous?.value;
-      final curr = next.value;
-      if (prev == null || curr == null || curr == prev) return;
-      // Only flash when off the Rewards tab — it is always visible there.
-      if (widget.selectedIndex != _rewardsTabIndex) _flash();
-    });
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    const gold = Color(0xFFFFD54F);
-    final onGold = isDark ? const Color(0xFFB8860B) : const Color(0xFF6D4C00);
-
-    return IgnorePointer(
-      child: FadeTransition(
-        opacity: _opacity,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF2A2A2A) : Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: gold.withValues(alpha: 0.8)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('✨', style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 6),
-              Text(
-                _format(coins),
-                key: ValueKey<int>(coins),
-                style: TextStyle(
-                  color: onGold,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Standard comma-separated number formatting, e.g. 9500 -> '9,500'.
-  String _format(int n) => n.toString().replaceAllMapped(
-        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-        (Match m) => '${m[1]},',
-      );
 }

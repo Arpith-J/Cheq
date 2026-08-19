@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:home_widget/home_widget.dart';
 import '../firebase_options.dart';
 import '../models/planner_model.dart';
 import '../models/user_model.dart';
+import '../models/space_model.dart';
 import '../providers/rewards_provider.dart';
 import 'home_widget_service.dart';
 import '../services/notification_service.dart';
@@ -399,6 +402,52 @@ class FirestoreService {
     }
   }
 
+  /// Checks if the user's Firestore `displayName` field is missing or empty and
+  /// back-fills it from Firebase Auth (or the email prefix as a last resort).
+  /// Called once during boot so legacy documents always have a human-readable
+  /// name for Spaces / Group task assignment.
+  Future<void> ensureDisplayName() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final snapshot = await _userDocRef(user.uid).get();
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() as Map<String, dynamic>?;
+      final existing = data?['displayName'] as String?;
+      if (existing != null && existing.trim().isNotEmpty) return;
+
+      final resolved = user.displayName?.trim();
+      final fallback = user.email != null
+          ? user.email!.split('@').first
+          : 'User';
+      final name = (resolved != null && resolved.isNotEmpty) ? resolved : fallback;
+
+      await _userDocRef(user.uid).set(
+        {'displayName': name},
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint("ensureDisplayName failed: $e");
+    }
+  }
+
+  /// Updates the user's display name in their Firestore profile document.
+  Future<void> updateDisplayName(String name) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _userDocRef(user.uid).set(
+        {'displayName': name.trim()},
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint("Failed to update displayName: $e");
+    }
+  }
+
   Future<void> saveUserSettings(String uid, Map<String, dynamic> settingsData) async {
     try {
       await _userDocRef(uid).set(settingsData, SetOptions(merge: true));
@@ -592,6 +641,330 @@ class FirestoreService {
         .delete();
   }
 
+  // --- SPACE / GROUP METHODS ---
+
+  /// Creates a new collaborative Space with a unique 6-character uppercase
+  /// alphanumeric room code and sets the creator as its first member.
+  Future<SpaceModel> createSpace(String spaceName) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('You must be signed in to create a Space.');
+
+    final name = spaceName.trim();
+    if (name.isEmpty) throw ArgumentError('Space name cannot be empty.');
+
+    final now = DateTime.now();
+    final code = await _generateUniqueRoomCode();
+
+    final data = <String, dynamic>{
+      'name': name,
+      'roomCode': code,
+      'createdBy': user.uid,
+      'members': [user.uid],
+      'createdAt': now.toIso8601String(),
+    };
+
+    // `add()` writes through Firestore's offline persistence first, so the new
+    // Space is visible instantly (even offline) and syncs once the network
+    // returns.
+    final ref = await _db.collection('spaces').add(data);
+
+    return SpaceModel(
+      id: ref.id,
+      name: name,
+      roomCode: code,
+      createdBy: user.uid,
+      members: [user.uid],
+      createdAt: now,
+    );
+  }
+
+  /// Looks up a Space by its 6-digit room code (case-insensitive) and adds the
+  /// current user to `members` via `FieldValue.arrayUnion`. Returns false when
+  /// the user is signed out, the code is malformed, or no Space matches.
+  Future<bool> joinSpaceByCode(String code) async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+
+    final normalized = code.trim().toUpperCase();
+    if (normalized.length != 6 || !RegExp(r'^[A-Z0-9]{6}$').hasMatch(normalized)) {
+      return false;
+    }
+
+    final snapshot = await _db
+        .collection('spaces')
+        .where('roomCode', isEqualTo: normalized)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return false;
+
+    // arrayUnion is idempotent, so re-joining an already-member Space is a
+    // harmless no-op.
+    await _db.collection('spaces').doc(snapshot.docs.first.id).update({
+      'members': FieldValue.arrayUnion([user.uid]),
+    });
+    return true;
+  }
+
+  /// Live stream of every Space whose `members` array contains the current
+  /// user's UID. Sorted newest-first in Dart (an `array-contains` + `orderBy`
+  /// combination would otherwise demand a composite index).
+  Stream<List<SpaceModel>> streamUserSpaces() {
+    final user = _auth.currentUser;
+    if (user == null) return Stream.value(const []);
+
+    return _db
+        .collection('spaces')
+        .where('members', arrayContains: user.uid)
+        .snapshots()
+        .map((snapshot) {
+      final spaces = snapshot.docs
+          .map((doc) => SpaceModel.fromMap(doc.data(), id: doc.id))
+          .toList();
+      spaces.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return spaces;
+    });
+  }
+
+  /// Removes the current user's UID from a Space's `members`. The Space itself
+  /// is left in place so remaining members keep their data.
+  Future<void> leaveSpace(String spaceId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    await _db.collection('spaces').doc(spaceId).update({
+      'members': FieldValue.arrayRemove([user.uid]),
+    });
+  }
+
+  // --- GROUP MEMBER PROFILES ---
+
+  /// Resolves member UIDs to human-readable display names for the 'Assign To'
+  /// picker. Firestore offers no cross-document joins, so each member's
+  /// `users/{uid}` profile is read individually; members without a profile
+  /// document degrade gracefully to a short UID prefix.
+  Future<Map<String, String>> fetchUserDisplayNames(List<String> uids) async {
+    final names = <String, String>{};
+    for (final uid in uids.where((u) => u.isNotEmpty).toSet()) {
+      try {
+        final snap = await _db.collection('users').doc(uid).get();
+        final data = snap.data();
+        final name = data?['displayName'];
+        names[uid] = (name is String && name.trim().isNotEmpty)
+            ? name
+            : _shortUid(uid);
+      } catch (e) {
+        debugPrint("Failed to load user profile for $uid: $e");
+        names[uid] = _shortUid(uid);
+      }
+    }
+    return names;
+  }
+
+  static String _shortUid(String uid) =>
+      uid.length <= 6 ? uid : uid.substring(0, 6);
+
+  // --- GROUP TO-DO METHODS ---
+
+  /// Live stream of the shared to-do checklist stored under
+  /// `spaces/{spaceId}/tasks`, ordered newest-first by creation time so members
+  /// on every device see the exact same collaborative list.
+  Stream<List<PlannerModel>> streamGroupTasks(String spaceId) {
+    if (spaceId.isEmpty) return Stream.value(const []);
+    return _db
+        .collection('spaces')
+        .doc(spaceId)
+        .collection('tasks')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => PlannerModel.fromMap(doc.data()))
+            .toList());
+  }
+
+  /// Saves or updates a shared task inside `spaces/{spaceId}/tasks`. New tasks
+  /// receive a `createdAt` stamp (falling back to now when the model omits one)
+  /// so the checklist streams in a stable creation order.
+  Future<void> saveGroupTask(String spaceId, PlannerModel task) async {
+    if (spaceId.isEmpty) return;
+    try {
+      final data = task.toMap();
+      if (data['createdAt'] == null) {
+        data['createdAt'] = DateTime.now().toIso8601String();
+      }
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('tasks')
+          .doc(task.id)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to save group task to Firestore: $e");
+    }
+  }
+
+  /// Removes a shared task from `spaces/{spaceId}/tasks`.
+  Future<void> deleteGroupTask(String spaceId, String taskId) async {
+    if (spaceId.isEmpty) return;
+    try {
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('tasks')
+          .doc(taskId)
+          .delete();
+    } catch (e) {
+      debugPrint("Failed to delete group task from Firestore: $e");
+    }
+  }
+
+  /// Toggles a shared task's completion and applies the personal coin economy
+  /// in a single atomic WriteBatch:
+  ///  - flips `isDone` on `spaces/{spaceId}/tasks/{taskId}`;
+  ///  - adds/removes the user's UID from the `completedBy` array;
+  ///  - when marking done, awards the standard per-item reward
+  ///    ([todoItemCoins] = +5) to the tapping user's `coins` field on
+  ///    `users/{uid}`;
+  ///  - when unchecking, decrements the exact same amount so the reward can
+  ///    never be farmed by toggling repeatedly.
+  Future<void> toggleGroupTaskCompletion({
+    required String spaceId,
+    required PlannerModel task,
+    required String uid,
+  }) async {
+    if (spaceId.isEmpty || uid.isEmpty) return;
+
+    try {
+      final batch = _db.batch();
+      final taskRef = _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('tasks')
+          .doc(task.id);
+
+      final coinDelta = task.isDone ? -todoItemCoins : todoItemCoins;
+
+      batch.update(taskRef, {
+        'isDone': !task.isDone,
+        'completedBy': task.isDone
+            ? FieldValue.arrayRemove([uid])
+            : FieldValue.arrayUnion([uid]),
+      });
+      batch.update(_userDocRef(uid), {
+        'coins': FieldValue.increment(coinDelta),
+      });
+
+      await batch.commit();
+      debugPrint(
+          "Group task ${task.id} ${task.isDone ? 'unchecked' : 'checked'} "
+          "($coinDelta coins for $uid)");
+    } catch (e) {
+      debugPrint("Failed to toggle group task completion: $e");
+    }
+  }
+
+  // --- GROUP REMINDER METHODS ---
+
+  /// Live stream of the shared reminders stored under
+  /// `spaces/{spaceId}/reminders`, ordered newest-first by creation time.
+  /// Reminders live in their own subcollection so the Group Planner timeline
+  /// and the Group Reminders list stay independent. Firestore rules for
+  /// `/spaces/{spaceId}/reminders` are expected to be tightened later.
+  Stream<List<PlannerModel>> streamGroupReminders(String spaceId) {
+    if (spaceId.isEmpty) return Stream.value(const []);
+    return _db
+        .collection('spaces')
+        .doc(spaceId)
+        .collection('reminders')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => PlannerModel.fromMap(doc.data()))
+            .toList());
+  }
+
+  /// Saves or updates a shared reminder inside `spaces/{spaceId}/reminders`.
+  /// New reminders receive a `createdAt` stamp (falling back to now when the
+  /// model omits one) so the reminders list streams in a stable order.
+  Future<void> saveGroupReminder(String spaceId, PlannerModel reminder) async {
+    if (spaceId.isEmpty) return;
+    try {
+      final data = reminder.toMap();
+      if (data['createdAt'] == null) {
+        data['createdAt'] = DateTime.now().toIso8601String();
+      }
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminder.id)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Failed to save group reminder to Firestore: $e");
+    }
+  }
+
+  /// Flips a shared reminder's `isDone` flag, which the Group Reminders list
+  /// uses as its acknowledged state. Unlike [toggleGroupTaskCompletion] this
+  /// intentionally awards no coins — acknowledging a reminder should never be
+  /// farmable.
+  Future<void> toggleGroupReminderAcknowledged({
+    required String spaceId,
+    required String reminderId,
+    required bool acknowledged,
+  }) async {
+    if (spaceId.isEmpty) return;
+    try {
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminderId)
+          .update({'isDone': acknowledged});
+    } catch (e) {
+      debugPrint("Failed to toggle group reminder acknowledgement: $e");
+    }
+  }
+
+  /// Removes a shared reminder from `spaces/{spaceId}/reminders`.
+  Future<void> deleteGroupReminder(String spaceId, String reminderId) async {
+    if (spaceId.isEmpty) return;
+    try {
+      await _db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminderId)
+          .delete();
+    } catch (e) {
+      debugPrint("Failed to delete group reminder from Firestore: $e");
+    }
+  }
+
+  /// Generates a 6-character uppercase alphanumeric room code that does not
+  /// collide with any existing Space.
+  Future<String> _generateUniqueRoomCode() async {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rng = Random();
+    final spacesRef = _db.collection('spaces');
+
+    String candidate() => List.generate(
+          6,
+          (_) => chars[rng.nextInt(chars.length)],
+        ).join();
+
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final code = candidate();
+      final existing = await spacesRef
+          .where('roomCode', isEqualTo: code)
+          .limit(1)
+          .get();
+      if (existing.docs.isEmpty) return code;
+    }
+
+    throw StateError('Could not generate a unique room code. Try again.');
+  }
+
   /// Completes a planner task exactly like the in-app checkbox: persists
   /// `isDone`/`isRewarded`/`coinsAwarded`, awards the coin reward (+ deep-work
   /// bonus when the task runs >= 2 hours), unlocks badges (Night Owl when it
@@ -691,6 +1064,53 @@ class FirestoreService {
       }
     } catch (e) {
       debugPrint("Background completion failed for $taskId: $e");
+    }
+  }
+
+  /// Acknowledges a shared Group Reminder from a background isolate (the
+  /// 'Done' notification action). Flips the same `isDone` flag the Group
+  /// Reminders list uses as its acknowledged state, so every member's device
+  /// reconciles its local alarms through the normal sync path. Awards no
+  /// coins — acknowledging a reminder is intentionally not farmable.
+  ///
+  /// Safe to call from a background isolate: Firebase is initialized on
+  /// demand and the active notification is dismissed from the status bar.
+  static Future<void> acknowledgeGroupReminderFromBackground(
+    String spaceId,
+    String reminderId,
+  ) async {
+    if (spaceId.isEmpty || reminderId.isEmpty) return;
+
+    // A background isolate owns a fresh Dart heap, so Firebase.apps is always
+    // empty here. Initialize (and await) BEFORE any Firestore call is made.
+    if (!await _ensureBackgroundFirebase()) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final reminderRef = db
+          .collection('spaces')
+          .doc(spaceId)
+          .collection('reminders')
+          .doc(reminderId);
+
+      // Mark the reminder acknowledged atomically — only flips if the document
+      // still exists, so a reminder deleted since the notification fired can
+      // never be resurrected.
+      await db.runTransaction((tx) async {
+        final snap = await tx.get(reminderRef);
+        if (!snap.exists) return;
+        tx.update(reminderRef, {'isDone': true});
+      });
+      debugPrint("Background group reminder acknowledged: $reminderId");
+
+      // Dismiss the active notification. The stable id matches the derivation
+      // in NotificationService.groupReminderNotificationId; a fresh plugin
+      // instance is used because this isolate's plugin was never initialized
+      // (mirrors NotificationService.cancelNotification).
+      final isolatePlugin = FlutterLocalNotificationsPlugin();
+      await isolatePlugin.cancel(id: reminderId.hashCode & 0x7fffffff);
+    } catch (e) {
+      debugPrint("Background group reminder acknowledgement failed: $e");
     }
   }
 }
