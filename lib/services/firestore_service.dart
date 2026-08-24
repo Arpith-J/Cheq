@@ -36,6 +36,13 @@ class FirestoreService {
   ///   a) the task is completed ('isDone == true')
   ///   b) its 'startTime' is before (now - 2 days)
   /// Pending tasks ('isDone == false') always bypass deletion, regardless of age.
+  ///
+  /// After purging the personal `/users/{uid}/planner` collection, the same
+  /// policy is applied to EVERY Space the user belongs to: completed
+  /// `spaces/{spaceId}/tasks` and acknowledged `spaces/{spaceId}/reminders`
+  /// older than the cutoff are batch-deleted (chunked under Firestore's
+  /// 500-write limit). Runs silently in the background — every failure is
+  /// swallowed into a [debugPrint] so UI streams are never interrupted.
   Future<void> runAutomaticDataCleanup(List<PlannerModel> allTasks) async {
     final ref = _plannerRef;
     if (ref == null) return;
@@ -43,30 +50,126 @@ class FirestoreService {
     try {
       final cutoff = DateTime.now().subtract(const Duration(days: 2));
 
+      // ── 1. PERSONAL PLANNER PURGE ──
       // Filter tasks to find completed ones strictly older than 2 days
       final tasksToDelete = allTasks.where((task) {
         return task.isDone == true && task.startTime.isBefore(cutoff);
       }).toList();
 
-      if (tasksToDelete.isEmpty) return;
-
-      final batch = _db.batch();
-      
-      for (final task in tasksToDelete) {
-        batch.delete(ref.doc(task.id));
-        
+      if (tasksToDelete.isNotEmpty) {
         // Clean up any lingering native notifications just in case
-        final rawDigits = task.id.replaceAll(RegExp(r'[^0-9]'), '');
-        final parsedInt = int.tryParse(rawDigits);
-        if (parsedInt != null) {
-          await NotificationService.instance.cancelNotification(parsedInt % 2147483647);
+        for (final task in tasksToDelete) {
+          final rawDigits = task.id.replaceAll(RegExp(r'[^0-9]'), '');
+          final parsedInt = int.tryParse(rawDigits);
+          if (parsedInt != null) {
+            await NotificationService.instance.cancelNotification(parsedInt % 2147483647);
+          }
+        }
+
+        await _commitChunkedDeletes(
+          [for (final task in tasksToDelete) ref.doc(task.id)],
+          label: 'personal tasks',
+        );
+      }
+
+      // ── 2. SPACE (GROUP) PURGE ──
+      await _cleanupStaleSpaceData(cutoff);
+    } catch (e) {
+      debugPrint("Background cleanup failed: $e");
+    }
+  }
+
+  /// Sweeps completed group tasks and acknowledged group reminders across
+  /// every Space the current user is a member of, applying the exact same
+  /// 2-day retention policy as the personal planner.
+  Future<void> _cleanupStaleSpaceData(DateTime cutoff) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final spacesSnapshot = await _db
+          .collection('spaces')
+          .where('members', arrayContains: user.uid)
+          .get();
+
+      for (final spaceDoc in spacesSnapshot.docs) {
+        await _purgeStaleSubcollection(
+          spaceDoc.reference.collection('tasks'),
+          cutoff,
+          label: 'group tasks',
+        );
+        await _purgeStaleSubcollection(
+          spaceDoc.reference.collection('reminders'),
+          cutoff,
+          label: 'group reminders',
+        );
+      }
+    } catch (e) {
+      debugPrint("Background space cleanup failed: $e");
+    }
+  }
+
+  /// Deletes every document in [collectionRef] whose `isDone` flag is set and
+  /// whose aging timestamp falls before [cutoff]. The equality-only query
+  /// needs no composite index; aging is resolved client-side because
+  /// `startTime`/`endTime` are persisted as ISO-8601 strings (whose lexical
+  /// order is not timezone-safe for range queries).
+  Future<void> _purgeStaleSubcollection(
+    CollectionReference<Map<String, dynamic>> collectionRef,
+    DateTime cutoff, {
+    required String label,
+  }) async {
+    try {
+      final snapshot =
+          await collectionRef.where('isDone', isEqualTo: true).get();
+
+      final staleRefs = <DocumentReference<Map<String, dynamic>>>[];
+      for (final doc in snapshot.docs) {
+        final agedAt = _resolveAgingTimestamp(doc.data());
+        if (agedAt != null && agedAt.isBefore(cutoff)) {
+          staleRefs.add(doc.reference);
         }
       }
 
-      await batch.commit();
-      debugPrint("Background Cleanup: Purged ${tasksToDelete.length} old completed tasks.");
+      if (staleRefs.isEmpty) return;
+      await _commitChunkedDeletes(staleRefs, label: label);
     } catch (e) {
-      debugPrint("Background cleanup failed: $e");
+      debugPrint("Background $label cleanup failed: $e");
+    }
+  }
+
+  /// Picks the timestamp a document ages against: prefers `startTime`
+  /// (mirroring the personal cleanup rule) and falls back to `endTime`.
+  /// Documents carrying neither parsable field are never deleted.
+  static DateTime? _resolveAgingTimestamp(Map<String, dynamic> data) {
+    for (final key in const ['startTime', 'endTime']) {
+      final raw = data[key];
+      if (raw is String && raw.isNotEmpty) {
+        final parsed = DateTime.tryParse(raw);
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
+  /// Commits delete operations in chunks of 450 so a large purge can never
+  /// breach Firestore's hard 500-writes-per-batch limit.
+  Future<void> _commitChunkedDeletes(
+    List<DocumentReference<Map<String, dynamic>>> refs, {
+    required String label,
+  }) async {
+    const chunkSize = 450;
+
+    for (var i = 0; i < refs.length; i += chunkSize) {
+      final end = min(i + chunkSize, refs.length);
+      final batch = _db.batch();
+      for (final ref in refs.sublist(i, end)) {
+        batch.delete(ref);
+      }
+      await batch.commit();
+      debugPrint(
+          "Background Cleanup: Purged ${end - i} old completed $label "
+          "(chunk ${i ~/ chunkSize + 1}).");
     }
   }
 
