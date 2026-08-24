@@ -8,6 +8,7 @@ import '../providers/spaces_provider.dart';
 import '../widgets/spaces/group_planner_tab.dart';
 import '../widgets/spaces/group_reminders_tab.dart';
 import '../widgets/spaces/group_todo_tab.dart';
+import '../widgets/spaces/space_details_sheet.dart';
 
 // ---------------------------------------------------------------------------
 // SpaceDetailScreen — nested Group workspace
@@ -98,6 +99,24 @@ class _SpaceDetailScreenState extends ConsumerState<SpaceDetailScreen> {
     }
   }
 
+  /// Opens the read-only Space details sheet (identity, join code, roster).
+  /// The sheet watches [spaceMembersProvider], so it is re-scoped onto the
+  /// current ProviderContainer across the modal barrier.
+  void _openDetailsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => UncontrolledProviderScope(
+        container: ProviderScope.containerOf(context),
+        child: SpaceDetailsSheet(space: widget.space),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -111,24 +130,45 @@ class _SpaceDetailScreenState extends ConsumerState<SpaceDetailScreen> {
         elevation: 0,
         scrolledUnderElevation: 1,
         titleSpacing: 4,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.space.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+        title: InkWell(
+          onTap: _openDetailsSheet,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        widget.space.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.info_outline,
+                      size: 16,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+                Text(
+                  '${widget.space.roomCode}  •  ${widget.space.members.length} members',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-            Text(
-              '${widget.space.roomCode}  •  ${widget.space.members.length} members',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-          ],
+          ),
         ),
         actions: [
           PopupMenuButton<String>(
