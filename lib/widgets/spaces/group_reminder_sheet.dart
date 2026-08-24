@@ -7,16 +7,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/planner_model.dart';
 import '../../providers/space_members_provider.dart';
 import '../../services/firestore_service.dart';
+import '../../services/notification_service.dart';
 
-/// Bottom sheet for creating a new shared Group Reminder. Styling mirrors the
-/// other Space sheets: a title, a single date+time trigger, and an 'Assign To'
-/// dropdown. Saving writes straight into `spaces/{spaceId}/reminders` so every
-/// member's Group Reminders list updates in near-real-time.
+/// Bottom sheet for creating or editing a shared Group Reminder. Styling
+/// mirrors the other Space sheets: a title, a single date+time trigger, and an
+/// 'Assign To' dropdown. Saving writes straight into
+/// `spaces/{spaceId}/reminders` so every member's Group Reminders list updates
+/// in near-real-time. When editing, the existing document id is reused and the
+/// device's native alarm is swapped under the same stable notification id.
 class GroupReminderSheet extends ConsumerStatefulWidget {
-  const GroupReminderSheet({super.key, required this.spaceId});
+  const GroupReminderSheet({
+    super.key,
+    required this.spaceId,
+    this.initialEntry,
+  });
 
   /// The owning Space — the reminder is stored under `spaces/{spaceId}/reminders`.
   final String spaceId;
+
+  /// When provided the sheet edits this existing reminder instead of creating
+  /// a new one: the fields are pre-filled and [FirestoreService.saveGroupReminder]
+  /// overwrites the original document so identity and list order are preserved.
+  final PlannerModel? initialEntry;
 
   @override
   ConsumerState<GroupReminderSheet> createState() => _GroupReminderSheetState();
@@ -33,17 +45,25 @@ class _GroupReminderSheetState extends ConsumerState<GroupReminderSheet> {
   @override
   void initState() {
     super.initState();
-    // Default the alert trigger to the next round half-hour so the picker
-    // starts on a sensible, always-in-the-future time.
-    final now = DateTime.now();
-    final minute = now.minute >= 30 ? 0 : 30;
-    final hour = (now.minute >= 30 ? now.hour + 1 : now.hour) % 24;
-    _trigger = DateTime(now.year, now.month, now.day, hour, minute);
-    // Reminders default to the whole group ('Everyone' / null).
-    _assignedTo = null;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _titleFocus.requestFocus();
-    });
+    final entry = widget.initialEntry;
+    if (entry != null) {
+      // Edit mode: pre-fill every field from the existing reminder.
+      _titleCtrl.text = entry.title;
+      _trigger = entry.startTime;
+      _assignedTo = entry.assignedTo;
+    } else {
+      // Default the alert trigger to the next round half-hour so the picker
+      // starts on a sensible, always-in-the-future time.
+      final now = DateTime.now();
+      final minute = now.minute >= 30 ? 0 : 30;
+      final hour = (now.minute >= 30 ? now.hour + 1 : now.hour) % 24;
+      _trigger = DateTime(now.year, now.month, now.day, hour, minute);
+      // Reminders default to the whole group ('Everyone' / null).
+      _assignedTo = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _titleFocus.requestFocus();
+      });
+    }
   }
 
   @override
@@ -83,22 +103,53 @@ class _GroupReminderSheetState extends ConsumerState<GroupReminderSheet> {
     setState(() => _isSaving = true);
 
     try {
-      // A reminder is a point-in-time alert, so start == end (the exact
-      // trigger). That also keeps reminders out of the Group Planner timeline,
-      // which only surfaces windows where `endTime.isAfter(startTime)`.
-      final reminder = PlannerModel(
-        id: 'reminder_${DateTime.now().millisecondsSinceEpoch}',
-        title: _titleCtrl.text.trim(),
-        startTime: _trigger,
-        endTime: _trigger,
-        isTimeLocked: true, // the alert trigger is a fixed point in time
-        groupId: widget.spaceId,
-        assignedTo: _assignedTo,
-        createdAt: DateTime.now(),
-      );
+      final existing = widget.initialEntry;
+      final PlannerModel reminder;
+      if (existing != null) {
+        // Edit mode: overwrite the same document id and preserve every field
+        // the sheet doesn't manage (acknowledgement state, createdAt ordering
+        // stamp, completion metadata) via copyWith.
+        reminder = existing.copyWith(
+          title: _titleCtrl.text.trim(),
+          startTime: _trigger,
+          // A reminder is a point-in-time alert, so start == end (the exact
+          // trigger). That also keeps reminders out of the Group Planner
+          // timeline, which only surfaces windows where
+          // `endTime.isAfter(startTime)`.
+          endTime: _trigger,
+        );
+      } else {
+        reminder = PlannerModel(
+          id: 'reminder_${DateTime.now().millisecondsSinceEpoch}',
+          title: _titleCtrl.text.trim(),
+          startTime: _trigger,
+          endTime: _trigger,
+          isTimeLocked: true, // the alert trigger is a fixed point in time
+          groupId: widget.spaceId,
+          assignedTo: _assignedTo,
+          createdAt: DateTime.now(),
+        );
+      }
 
       await FirestoreService.instance
           .saveGroupReminder(widget.spaceId, reminder);
+
+      // Swap the device's native alarm for this reminder under the SAME stable
+      // id — mirrors the planner's edit flow. Cancelling first guarantees the
+      // old alarm can never fire, then the exact same reconciliation the Group
+      // Reminders provider uses re-schedules the updated copy when it still
+      // warrants an alarm (targets me, unacknowledged, in the future) or leaves
+      // it cancelled otherwise.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        await NotificationService.instance
+            .cancelNotification(groupReminderNotificationId(reminder.id));
+        await NotificationService.instance.syncGroupRemindersToNativeAlarms(
+          [reminder],
+          uid,
+          spaceId: widget.spaceId,
+        );
+      }
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -144,7 +195,9 @@ class _GroupReminderSheetState extends ConsumerState<GroupReminderSheet> {
                 Row(
                   children: [
                     Text(
-                      'New Reminder',
+                      widget.initialEntry != null
+                          ? 'Edit Reminder'
+                          : 'New Reminder',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w700),
                     ),

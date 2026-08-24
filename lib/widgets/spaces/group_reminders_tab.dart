@@ -12,9 +12,10 @@ import 'group_reminder_sheet.dart';
 
 /// The 'Group Reminders' tab for a Space: a shared list of timed alerts from
 /// the `reminders` subcollection. Each row shows the title, the exact alert
-/// trigger time, and who it is delegated to. A checkbox acknowledges a reminder
-/// (no coins, unlike group-task completion), and the [FloatingActionButton]
-/// creates new reminders via [GroupReminderSheet].
+/// trigger time, and who it is delegated to. Tapping a row opens the edit
+/// sheet ([GroupReminderSheet] in edit mode), long-pressing deletes, and a
+/// checkbox acknowledges a reminder (no coins, unlike group-task completion).
+/// The [FloatingActionButton] creates new reminders via [GroupReminderSheet].
 class GroupRemindersTab extends ConsumerStatefulWidget {
   const GroupRemindersTab({super.key, required this.spaceId});
 
@@ -85,6 +86,27 @@ class _GroupRemindersTabState extends ConsumerState<GroupRemindersTab> {
     );
   }
 
+  /// Re-opens the sheet in edit mode for [reminder]. The sheet overwrites the
+  /// same document id and swaps the native alarm, so the stream picks the
+  /// change up on every member's device automatically.
+  void _openEditSheet(PlannerModel reminder) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => UncontrolledProviderScope(
+        container: ProviderScope.containerOf(context),
+        child: GroupReminderSheet(
+          spaceId: widget.spaceId,
+          initialEntry: reminder,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final remindersAsync = ref.watch(groupRemindersProvider(widget.spaceId));
@@ -124,6 +146,7 @@ class _GroupRemindersTabState extends ConsumerState<GroupRemindersTab> {
                 memberNames: memberNames,
                 isBusy: _busyReminderId == reminder.id,
                 onToggle: () => _toggleAcknowledged(reminder),
+                onEdit: () => _openEditSheet(reminder),
                 onDelete: () => _confirmDelete(reminder),
               );
             },
@@ -150,6 +173,7 @@ class _ReminderTile extends StatelessWidget {
     required this.memberNames,
     required this.isBusy,
     required this.onToggle,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -157,6 +181,7 @@ class _ReminderTile extends StatelessWidget {
   final Map<String, String> memberNames;
   final bool isBusy;
   final VoidCallback onToggle;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   static const _weekdays = [
@@ -215,6 +240,7 @@ class _ReminderTile extends StatelessWidget {
         ),
       ),
       child: ListTile(
+        onTap: onEdit,
         onLongPress: onDelete,
         contentPadding: const EdgeInsets.fromLTRB(14, 4, 8, 4),
         leading: Container(
