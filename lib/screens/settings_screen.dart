@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/theme_provider.dart';
 import '../providers/notification_settings_provider.dart';
 import '../services/firestore_service.dart';
+import '../providers/space_members_provider.dart';
 import '../widgets/theme_picker_row.dart';
 import '../widgets/settings/ai_settings_card.dart';
 import '../providers/task_settings_provider.dart';
@@ -22,7 +23,11 @@ class SettingsScreen extends ConsumerWidget {
     return "night";
   }
 
-  void _showEditNameDialog(BuildContext context, User? user) {
+  void _showEditNameDialog(
+    BuildContext context,
+    WidgetRef ref,
+    User? user,
+  ) {
     final controller = TextEditingController(
       text: user?.displayName ?? '',
     );
@@ -45,7 +50,7 @@ class SettingsScreen extends ConsumerWidget {
               borderSide: BorderSide.none,
             ),
           ),
-          onSubmitted: (_) => _saveName(ctx, controller),
+          onSubmitted: (_) => _saveName(ctx, ref, controller),
         ),
         actions: [
           TextButton(
@@ -53,7 +58,7 @@ class SettingsScreen extends ConsumerWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => _saveName(ctx, controller),
+            onPressed: () => _saveName(ctx, ref, controller),
             child: const Text('Save'),
           ),
         ],
@@ -61,11 +66,20 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _saveName(BuildContext ctx, TextEditingController controller) async {
+  Future<void> _saveName(
+    BuildContext ctx,
+    WidgetRef ref,
+    TextEditingController controller,
+  ) async {
     final name = controller.text.trim();
     if (name.isEmpty) return;
 
     await FirestoreService.instance.updateDisplayName(name);
+
+    // Re-resolve roster names instantly across every open Space sheet so the
+    // corrected name shows up without waiting for the polling stream.
+    ref.invalidate(spaceMembersProvider);
+
     if (ctx.mounted) Navigator.pop(ctx);
   }
 
@@ -118,7 +132,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
               subtitle: Text(user?.email ?? ''),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => _showEditNameDialog(context, user),
+              onTap: () => _showEditNameDialog(context, ref, user),
             ),
           ),
 

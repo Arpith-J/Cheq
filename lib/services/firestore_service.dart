@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:home_widget/home_widget.dart';
@@ -505,30 +506,31 @@ class FirestoreService {
     }
   }
 
-  /// Checks if the user's Firestore `displayName` field is missing or empty and
-  /// back-fills it from Firebase Auth (or the email prefix as a last resort).
-  /// Called once during boot so legacy documents always have a human-readable
-  /// name for Spaces / Group task assignment.
+  /// AGGRESSIVE BOOT HYDRATION: resolves the signed-in user's best available
+  /// display name and FORCE-writes it onto `users/{uid}` on every app open.
+  ///
+  /// Resolution order: Firebase Auth `displayName` → email prefix →
+  /// 'Space Member'. Because Firebase Auth profiles are private per-device,
+  /// this Firestore write is the only way other group members can ever see a
+  /// human-readable name instead of a raw UID. The merge write is idempotent
+  /// and heals legacy/empty documents as well as newly created ones.
   Future<void> ensureDisplayName() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final User? currentUser = _auth.currentUser;
+    if (currentUser == null) return;
 
     try {
-      final snapshot = await _userDocRef(user.uid).get();
-      if (!snapshot.exists) return;
+      final String authName = currentUser.displayName?.trim() ?? '';
+      final String emailPrefix =
+          currentUser.email?.split('@').first.trim() ?? '';
 
-      final data = snapshot.data() as Map<String, dynamic>?;
-      final existing = data?['displayName'] as String?;
-      if (existing != null && existing.trim().isNotEmpty) return;
+      final String finalName = authName.isNotEmpty
+          ? authName
+          : emailPrefix.isNotEmpty
+              ? emailPrefix
+              : 'Space Member';
 
-      final resolved = user.displayName?.trim();
-      final fallback = user.email != null
-          ? user.email!.split('@').first
-          : 'User';
-      final name = (resolved != null && resolved.isNotEmpty) ? resolved : fallback;
-
-      await _userDocRef(user.uid).set(
-        {'displayName': name},
+      await _userDocRef(currentUser.uid).set(
+        {'displayName': finalName},
         SetOptions(merge: true),
       );
     } catch (e) {
@@ -537,13 +539,27 @@ class FirestoreService {
   }
 
   /// Updates the user's display name in their Firestore profile document.
+  ///
+  /// Also mirrors the new name onto the Firebase Auth profile: boot-time
+  /// [ensureDisplayName] hydration treats the Auth displayName as the source
+  /// of truth, so a custom name that exists only in Firestore would be
+  /// silently clobbered on the next app open.
   Future<void> updateDisplayName(String name) async {
     final user = _auth.currentUser;
     if (user == null) return;
+    final String trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+
+    try {
+      await user.updateDisplayName(trimmed);
+      await user.reload();
+    } catch (e) {
+      debugPrint("Failed to sync auth displayName: $e");
+    }
 
     try {
       await _userDocRef(user.uid).set(
-        {'displayName': name.trim()},
+        {'displayName': trimmed},
         SetOptions(merge: true),
       );
     } catch (e) {
@@ -844,28 +860,126 @@ class FirestoreService {
 
   /// Resolves member UIDs to human-readable display names for the 'Assign To'
   /// picker. Firestore offers no cross-document joins, so each member's
-  /// `users/{uid}` profile is read individually; members without a profile
-  /// document degrade gracefully to a short UID prefix.
+  /// `users/{uid}` profile is read individually.
+  ///
+  /// STRICT fallback order per member: `displayName` → email prefix →
+  /// `'Space Member'`. Raw UIDs are NEVER surfaced to the UI under any
+  /// circumstance.
+  ///
+  /// STRICT failure isolation: every individual profile read is wrapped in its
+  /// own try/catch, so a cached permission error or a missing user document can
+  /// never abort the whole roster resolution — that member simply degrades to a
+  /// generic `'Space Member'` label. This method therefore ALWAYS resolves with
+  /// a complete map and never throws.
+  ///
+  /// STRICT resolution priority per UID (enforced, do not reorder):
+  ///   1. `users/{uid}` document must exist.
+  ///   2. `displayName` present and non-empty → USE IT.
+  ///   3. otherwise `email` present and containing '@'
+  ///      → USE `email.split('@').first.trim()`.
+  ///   4. BOTH empty/missing → `'Space Member'`.
   Future<Map<String, String>> fetchUserDisplayNames(List<String> uids) async {
+    final uniqueUids = uids.where((u) => u.isNotEmpty).toSet();
     final names = <String, String>{};
-    for (final uid in uids.where((u) => u.isNotEmpty).toSet()) {
-      try {
-        final snap = await _db.collection('users').doc(uid).get();
-        final data = snap.data();
-        final name = data?['displayName'];
-        names[uid] = (name is String && name.trim().isNotEmpty)
-            ? name
-            : _shortUid(uid);
-      } catch (e) {
-        debugPrint("Failed to load user profile for $uid: $e");
-        names[uid] = _shortUid(uid);
+    try {
+      for (final uid in uniqueUids) {
+        // Per-UID strict isolation: one bad/unreadable profile must never take
+        // down resolution for the remaining members.
+        try {
+          final snap = await _db.collection('users').doc(uid).get();
+          if (!snap.exists) {
+            debugPrint(
+                'fetchUserDisplayNames: no users/$uid profile document; '
+                "using 'Space Member'");
+            names[uid] = 'Space Member';
+            continue;
+          }
+          final data = snap.data();
+          final dynamic rawName = data?['displayName'];
+          final String displayName =
+              (rawName is String && rawName.trim().isNotEmpty)
+                  ? rawName.trim()
+                  : '';
+
+          // STRICT fallback chain: Profile Name → Email prefix → generic label.
+          if (displayName.isNotEmpty) {
+            names[uid] = displayName;
+          } else {
+            final dynamic rawEmail = data?['email'];
+            if (rawEmail is String && rawEmail.contains('@')) {
+              final String emailPrefix = rawEmail.split('@').first.trim();
+              if (emailPrefix.isNotEmpty) {
+                names[uid] = emailPrefix;
+              } else {
+                names[uid] = 'Space Member';
+              }
+            } else {
+              names[uid] = 'Space Member';
+            }
+          }
+        } catch (e, st) {
+          debugPrint('NAME FETCH CRASH for UID $uid: $e\n$st');
+          names[uid] = 'Space Member';
+        }
       }
+    } catch (e, st) {
+      debugPrint('fetchUserDisplayNames: batch resolution failed: $e\n$st');
     }
+    // Belt-and-braces: every requested UID must leave with SOME entry.
+    for (final uid in uniqueUids) {
+      names.putIfAbsent(uid, () => 'Space Member');
+    }
+    debugPrint('Resolved Names: $names');
     return names;
   }
 
-  static String _shortUid(String uid) =>
-      uid.length <= 6 ? uid : uid.substring(0, 6);
+  /// LIVE display-name sync: emits an immediate resolution of [uids], then
+  /// re-fetches on a short interval while any listener is subscribed. Because
+  /// every member force-writes their `displayName` during boot
+  /// ([ensureDisplayName]), this loop guarantees the Spaces UI converges to
+  /// real names within seconds of another member opening the app — even when
+  /// the Space document itself never changed. The generic `'Space Member'`
+  /// label inside [fetchUserDisplayNames] remains the absolute last resort.
+  ///
+  /// Never emits an error: both the initial fetch and every periodic refresh
+  /// degrade to placeholder names on failure so downstream providers stay in
+  /// a valid data state.
+  Stream<Map<String, String>> streamUserDisplayNames(List<String> uids) async* {
+    final uniqueUids = uids.where((u) => u.isNotEmpty).toSet().toList();
+    if (uniqueUids.isEmpty) {
+      yield const <String, String>{};
+      return;
+    }
+
+    Map<String, String> lastEmitted;
+    try {
+      lastEmitted = await fetchUserDisplayNames(uniqueUids);
+    } catch (e, st) {
+      debugPrint('streamUserDisplayNames: initial fetch failed: $e\n$st');
+      lastEmitted = fallbackMemberNames(uniqueUids);
+    }
+    yield lastEmitted;
+
+    yield* Stream
+        .periodic(const Duration(seconds: 20), (_) => 0)
+        .asyncMap((_) async {
+      // A refresh failure must never kill the periodic loop or error the
+      // stream — degrade to placeholders for this tick instead.
+      try {
+        return await fetchUserDisplayNames(uniqueUids);
+      } catch (e, st) {
+        debugPrint('streamUserDisplayNames: periodic refresh failed: $e\n$st');
+        return fallbackMemberNames(uniqueUids);
+      }
+    }).distinct(mapEquals);
+  }
+
+  /// Placeholder roster used when member profiles cannot be read at all: every
+  /// UID degrades to a generic `'Space Member'` entry so the roster still
+  /// renders instead of surfacing an error state. Backend UIDs are never
+  /// exposed to the UI.
+  static Map<String, String> fallbackMemberNames(Iterable<String> uids) =>
+      {for (final uid in uids) if (uid.isNotEmpty) uid: 'Space Member'};
 
   // --- GROUP TO-DO METHODS ---
 

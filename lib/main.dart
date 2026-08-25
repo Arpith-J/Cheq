@@ -93,7 +93,9 @@ void main() async {
       // A2. Cache the UID for the background sync worker so it can resolve the
       //     user even when FirebaseAuth hasn't restored its session in-isolate.
       unawaited(BackgroundSyncService.instance.cacheUid(user.uid));
-      // A3. Auto-capture displayName from Firebase Auth for legacy documents.
+      // A3. AGGRESSIVE NAME SYNC: force-write the resolved displayName onto
+      //     users/{uid} on EVERY boot so other group members never see raw
+      //     UIDs in the Spaces UI.
       unawaited(FirestoreService.instance.ensureDisplayName());
       // B. Explicitly fetch the cloud UserModel and hydrate the local
       //    economy/stats/badge providers before the first frame, so a fresh
@@ -178,6 +180,10 @@ class _CheqAppState extends ConsumerState<CheqApp> with WidgetsBindingObserver {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
         await BackgroundSyncService.instance.cacheUid(uid);
+        // Re-assert the user's displayName on every foreground return so any
+        // member whose profile healed while this device was backgrounded is
+        // picked up by the live spaceMembersProvider immediately.
+        unawaited(FirestoreService.instance.ensureDisplayName());
       }
 
       // Invalidate the Spaces + group providers so the UI re-subscribes to

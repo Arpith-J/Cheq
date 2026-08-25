@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../providers/auth_provider.dart';
+import '../services/firestore_service.dart';
 import 'main_scaffold.dart'; // ← moved to top with other imports
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,11 @@ class AuthService {
     if (userCredential.additionalUserInfo?.isNewUser ?? false) {
       await _createUserProfile(user);
     }
+
+    // Heal legacy/empty profiles on every sign-in: force-write the resolved
+    // name so docs created before the fallback chain existed (saved with an
+    // empty-string displayName) never surface raw UIDs in the Spaces UI.
+    await FirestoreService.instance.ensureDisplayName();
   }
 
   Future<void> signOut() async {
@@ -52,10 +58,19 @@ class AuthService {
     ]);
   }
 
+  /// Mirrors [FirestoreService.ensureDisplayName]'s resolution order so a
+  /// freshly created profile can never persist an empty-string displayName
+  /// when the Google account has no public name.
   Future<void> _createUserProfile(User user) async {
+    final String authName = user.displayName?.trim() ?? '';
+    final String emailPrefix = user.email?.split('@').first.trim() ?? '';
+    final String finalName = authName.isNotEmpty
+        ? authName
+        : (emailPrefix.isNotEmpty ? emailPrefix : 'Space Member');
+
     await _firestore.collection('users').doc(user.uid).set({
       'uid': user.uid,
-      'displayName': user.displayName ?? '',
+      'displayName': finalName,
       'email': user.email ?? '',
       'photoUrl': user.photoURL,
       'coins': 0,
