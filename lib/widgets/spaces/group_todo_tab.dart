@@ -285,17 +285,7 @@ class _GroupTaskTile extends ConsumerWidget {
                   ),
                 ],
               )
-            : null,
-        trailing: IconButton(
-          visualDensity: VisualDensity.compact,
-          tooltip: 'Edit task',
-          onPressed: onEdit,
-          icon: Icon(
-            Icons.edit_outlined,
-            size: 20,
-            color: cs.onSurfaceVariant,
-          ),
-        ),
+             : null,
       ),
     );
   }

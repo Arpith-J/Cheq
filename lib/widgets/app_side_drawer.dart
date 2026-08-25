@@ -55,7 +55,7 @@ class AppSideDrawer extends ConsumerWidget {
                   ),
                   onTap: () {
                     // Close the drawer first
-                    Navigator.pop(context); 
+                    Navigator.pop(context);
                     // Slide in the full Settings Screen
                     Navigator.push(
                       context,
@@ -63,6 +63,37 @@ class AppSideDrawer extends ConsumerWidget {
                     );
                   },
                 ),
+                // ── Productivity Tools ────────────────────────────────────
+                ListTile(
+                  leading: Icon(Icons.construction_rounded, color: cs.primary),
+                  title: const Text(
+                    "Productivity Tools",
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ToolsScreen()),
+                    );
+                  },
+                ),
+                // ── Time Breakdown ────────────────────────────────────────
+                ListTile(
+                  leading: Icon(Icons.pie_chart_rounded, color: cs.primary),
+                  title: const Text(
+                    "Time Breakdown",
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StatsScreen()),
+                    );
+                  },
+                ),
+                // ── Trophy Room ───────────────────────────────────────────
                 ListTile(
                   leading: Icon(Icons.emoji_events_rounded, color: cs.primary),
                   title: const Text(
@@ -74,48 +105,6 @@ class AppSideDrawer extends ConsumerWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const TrophyRoomScreen()),
-                    );
-                  },
-                ),
-                ListTile(
-                   leading: Icon(Icons.pie_chart_rounded, color: cs.primary),
-                   title: const Text(
-                     "Time Breakdown",
-                     style: TextStyle(fontWeight: FontWeight.w600),
-                   ),
-                   onTap: () {
-                     Navigator.pop(context);
-                     Navigator.push(
-                       context,
-                       MaterialPageRoute(builder: (_) => const StatsScreen()),
-                     );
-                   },
-                 ),
-                // ── Tools ──────────────────────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    'TOOLS',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                ListTile(
-                  leading: Icon(Icons.construction_rounded, color: cs.primary),
-                  title: const Text(
-                    "Productivity Tools",
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: const Text("Pomodoro · Timer · Stopwatch"),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ToolsScreen()),
                     );
                   },
                 ),

@@ -253,6 +253,7 @@ class _SingleTaskLineItem extends ConsumerWidget {
         side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: ListTile(
+        onTap: () => TodoListScreen._openAddEditSheet(context, existingCollection: task),
         leading: Checkbox(
           value: item.isDone,
           onChanged: (_) => _toggleTask(ref, task, item),
