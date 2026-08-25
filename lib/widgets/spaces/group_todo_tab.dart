@@ -87,6 +87,24 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
     setState(() => _busyTaskId = null);
   }
 
+  /// Opens the to-do editing sheet pre-filled with [task]. Saving reuses the
+  /// task's existing document id, so `saveGroupTask`'s `SetOptions(merge: true)`
+  /// overwrites the Firestore document instead of creating a duplicate.
+  Future<void> _openEditSheet(PlannerModel task) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _GroupTodoEditSheet(
+        spaceId: widget.spaceId,
+        initialEntry: task,
+      ),
+    );
+  }
+
   Future<void> _confirmDelete(PlannerModel task) async {
     final cs = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
@@ -119,7 +137,12 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
   Widget build(BuildContext context) {
     final tasksAsync = ref.watch(groupTasksProvider(widget.spaceId));
 
-    return Column(
+    // Tapping anywhere outside the add-task field drops focus, dismissing the
+    // keyboard and hiding the cursor.
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.opaque,
+      child: Column(
       children: [
         Expanded(
           child: tasksAsync.when(
@@ -157,6 +180,7 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
                           task: task,
                           isBusy: _busyTaskId == task.id,
                           onToggle: () => _toggleTask(task),
+                          onEdit: () => _openEditSheet(task),
                           onDelete: () => _confirmDelete(task),
                         );
                       },
@@ -170,6 +194,7 @@ class _GroupTodoTabState extends ConsumerState<GroupTodoTab> {
           onSubmit: _addTask,
         ),
       ],
+      ),
     );
   }
 }
@@ -184,6 +209,7 @@ class _GroupTaskTile extends ConsumerWidget {
     required this.task,
     required this.isBusy,
     required this.onToggle,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -191,6 +217,7 @@ class _GroupTaskTile extends ConsumerWidget {
   final PlannerModel task;
   final bool isBusy;
   final VoidCallback onToggle;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -219,6 +246,7 @@ class _GroupTaskTile extends ConsumerWidget {
         side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: ListTile(
+        onTap: onEdit,
         onLongPress: onDelete,
         leading: Checkbox(
           value: iCompleted,
@@ -258,6 +286,16 @@ class _GroupTaskTile extends ConsumerWidget {
                 ],
               )
             : null,
+        trailing: IconButton(
+          visualDensity: VisualDensity.compact,
+          tooltip: 'Edit task',
+          onPressed: onEdit,
+          icon: Icon(
+            Icons.edit_outlined,
+            size: 20,
+            color: cs.onSurfaceVariant,
+          ),
+        ),
       ),
     );
   }
@@ -317,6 +355,148 @@ class _AddTaskBar extends StatelessWidget {
                 onPressed: onSubmit,
                 icon: const Icon(Icons.send_rounded, size: 20),
                 tooltip: 'Add task',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Edit sheet — title-only editor for an existing shared checklist item
+// ---------------------------------------------------------------------------
+
+/// Bottom sheet mirroring this tab's minimal to-do creation UX (a single
+/// title field). [initialEntry] pre-fills the editor and is re-saved with its
+/// original document id on Save, so Firestore merge-overwrites in place.
+class _GroupTodoEditSheet extends StatefulWidget {
+  const _GroupTodoEditSheet({
+    required this.spaceId,
+    required this.initialEntry,
+  });
+
+  final String spaceId;
+  final PlannerModel initialEntry;
+
+  @override
+  State<_GroupTodoEditSheet> createState() => _GroupTodoEditSheetState();
+}
+
+class _GroupTodoEditSheetState extends State<_GroupTodoEditSheet> {
+  late final TextEditingController _titleCtrl;
+  final _titleFocus = FocusNode();
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleCtrl = TextEditingController(text: widget.initialEntry.title);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _titleFocus.requestFocus();
+      // Select the existing text so typing replaces it outright.
+      _titleCtrl.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _titleCtrl.text.length,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _titleFocus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final text = _titleCtrl.text.trim();
+    if (_isSaving || text.isEmpty) {
+      _titleFocus.requestFocus();
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    // Same id + `SetOptions(merge: true)` inside saveGroupTask overwrites the
+    // existing document; completion state and creation order are untouched.
+    await FirestoreService.instance.saveGroupTask(
+      widget.spaceId,
+      widget.initialEntry.copyWith(title: text),
+    );
+
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cs.outlineVariant,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Text(
+                    'Edit Task',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _isSaving ? null : _save,
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _titleCtrl,
+                focusNode: _titleFocus,
+                enabled: !_isSaving,
+                textCapitalization: TextCapitalization.sentences,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: cs.surfaceContainerHigh,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                ),
               ),
             ],
           ),

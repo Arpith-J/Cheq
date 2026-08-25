@@ -856,6 +856,16 @@ class FirestoreService {
     });
   }
 
+  /// Removes another member's UID from a Space's `members` array via
+  /// `FieldValue.arrayRemove`. Used by the owner's member-management action in
+  /// the details sheet; the removed user keeps their personal data and can
+  /// always rejoin later with the Space's room code.
+  Future<void> removeMemberFromSpace(String spaceId, String memberUid) async {
+    await _db.collection('spaces').doc(spaceId).update({
+      'members': FieldValue.arrayRemove([memberUid]),
+    });
+  }
+
   // --- GROUP MEMBER PROFILES ---
 
   /// Resolves member UIDs to human-readable display names for the 'Assign To'
