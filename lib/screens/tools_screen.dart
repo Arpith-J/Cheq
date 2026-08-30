@@ -5,8 +5,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/notification_service.dart';
+
+/// Singleton used to trigger the audible completion chimes for the timers.
+final _ringtonePlayer = FlutterRingtonePlayer();
 
 /// Hub for the standalone time-management utilities: Pomodoro, Countdown
 /// Timer, and Stopwatch. Each tab owns its own [StatefulWidget] so every
@@ -129,6 +133,16 @@ class _PomodoroTab extends StatefulWidget {
 class _PomodoroTabState extends State<_PomodoroTab> {
   static const _notificationIdBase = 910000;
 
+  // ---------------------------------------------------------------------------
+  // SharedPreferences persistence keys for the Pomodoro session so its timer
+  // survives an app restart (active or paused).
+  // ---------------------------------------------------------------------------
+  static const _prefEndTime = 'pomodoro_end_time'; // ISO-8601, active session
+  static const _prefMode = 'pomodoro_timer_mode'; // focus / shortBreak / longBreak
+  static const _prefTotal = 'pomodoro_total_session_time'; // seconds, active+paused
+  static const _prefPausedRemaining =
+      'pomodoro_paused_remaining'; // seconds remaining, paused state
+
   final _minutesCtrl = TextEditingController(text: '50');
   final _minutesFocus = FocusNode();
 
@@ -138,6 +152,11 @@ class _PomodoroTabState extends State<_PomodoroTab> {
   List<_PomodoroBlock> _blocks = const [];
   bool _running = false;
   bool _finished = false;
+  bool _hydrated = false;
+
+  /// Index of the last block whose completion already triggered a chime, so a
+  /// focus/rest transition rings exactly once (and never on pause/reset).
+  int _lastChimedBlockIndex = -1;
 
   /// Ids of the boundary notifications scheduled for the live session, so
   /// they can be deterministically cancelled on pause/reset/dispose.
@@ -147,6 +166,114 @@ class _PomodoroTabState extends State<_PomodoroTab> {
         Duration.zero,
         (sum, block) => sum + block.duration,
       );
+
+  _PomodoroPhase get _currentPhase =>
+      _blocks.isEmpty ? _PomodoroPhase.focus : _blocks[_currentBlockIndex].phase;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSavedSession();
+  }
+
+  /// Loads any saved active/paused Pomodoro session from SharedPreferences and
+  /// reinstates it so the timer state survives an app restart.
+  Future<void> _restoreSavedSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final totalSeconds = prefs.getInt(_prefTotal);
+    if (totalSeconds == null || totalSeconds <= 0) {
+      setState(() => _hydrated = true);
+      return;
+    }
+
+    // Rebuild the identical block plan from the saved total session time.
+    final total = Duration(seconds: totalSeconds);
+    setState(() {
+      _blocks = _buildPomodoroBlocks(total);
+      _minutesCtrl.text = '${total.inMinutes}';
+    });
+
+    // --- Active session: endTime is still set, resume the countdown. ---
+    final endTimeIso = prefs.getString(_prefEndTime);
+    if (endTimeIso != null) {
+      final endTime = DateTime.tryParse(endTimeIso);
+      if (endTime != null) {
+        final remaining = endTime.difference(DateTime.now());
+        // Clamp: a session that already overran keeps the full dev offset so a
+        // live transition fires before reload rather than silently clobbering.
+        final totalRemaining =
+            remaining.isNegative ? Duration.zero : remaining;
+        setState(() {
+          _elapsed = total - totalRemaining;
+          _hydrated = true;
+        });
+        if (_elapsed >= _sessionTotal) {
+          _completeSession();
+        } else {
+          // Resume ticking from the surviving elapsed position.
+          _lastChimedBlockIndex = _currentBlockIndex;
+          _running = true;
+          _lastTickAt = DateTime.now();
+          _tick =
+              Timer.periodic(const Duration(milliseconds: 250), (_) => _onTick());
+          _syncBoundaryNotifications();
+        }
+        return;
+      }
+    }
+
+    // --- Paused session: endTime consumed, resume in a waiting state. ---
+    final pausedSeconds = prefs.getInt(_prefPausedRemaining);
+    if (pausedSeconds != null && pausedSeconds > 0) {
+      final remaining = Duration(seconds: pausedSeconds);
+      setState(() {
+        _elapsed = total - remaining;
+        _hydrated = true;
+      });
+      _lastChimedBlockIndex = _currentBlockIndex;
+      return;
+    }
+
+    setState(() => _hydrated = true);
+  }
+
+  /// Writes the currently-running session so it can be resumed after a restart.
+  Future<void> _persistActive() async {
+    final prefs = await SharedPreferences.getInstance();
+    final totalSeconds = _sessionTotal.inSeconds;
+    final endTime = DateTime.now().add(_sessionTotal - _elapsed);
+    final prefsFuture = prefs
+        .setString(_prefEndTime, endTime.toIso8601String())
+        .then((_) => prefs.setString(_prefMode, _currentPhase.name))
+        .then((_) => prefs.setInt(_prefTotal, totalSeconds))
+        // A fresh active write supersedes any stale paused marker.
+        .then((_) => prefs.remove(_prefPausedRemaining));
+    await prefsFuture;
+  }
+
+  /// Stores only the paused position (no `endTime`), so on the next launch the
+  /// timer holds in place instead of counting down while the app is closed.
+  Future<void> _persistPaused() async {
+    final prefs = await SharedPreferences.getInstance();
+    final remaining = _sessionTotal - _elapsed;
+    final prefsFuture = prefs
+        .remove(_prefEndTime)
+        .then((_) => prefs.setInt(_prefPausedRemaining, remaining.inSeconds))
+        .then((_) => prefs.setInt(_prefTotal, _sessionTotal.inSeconds))
+        .then((_) => prefs.setString(_prefMode, _currentPhase.name));
+    await prefsFuture;
+  }
+
+  /// Clears all saved Pomodoro session markers.
+  Future<void> _clearPersistence() async {
+    final prefs = await SharedPreferences.getInstance();
+    await Future.wait([
+      prefs.remove(_prefEndTime),
+      prefs.remove(_prefMode),
+      prefs.remove(_prefTotal),
+      prefs.remove(_prefPausedRemaining),
+    ]);
+  }
 
   @override
   void dispose() {
@@ -183,7 +310,16 @@ class _PomodoroTabState extends State<_PomodoroTab> {
       _elapsed += now.difference(_lastTickAt ?? now);
       _lastTickAt = now;
     });
-    if (_elapsed >= _sessionTotal) _completeSession();
+    if (_elapsed >= _sessionTotal) {
+      _completeSession();
+      return;
+    }
+    // A focus/rest block just hit zero — ring the transition chime once.
+    final index = _currentBlockIndex;
+    if (index != _lastChimedBlockIndex) {
+      _ringtonePlayer.playNotification();
+      _lastChimedBlockIndex = index;
+    }
   }
 
   Future<void> _start() async {
@@ -199,6 +335,7 @@ class _PomodoroTabState extends State<_PomodoroTab> {
       setState(() {
         _blocks = _buildPomodoroBlocks(Duration(minutes: minutes));
         _elapsed = Duration.zero;
+        _lastChimedBlockIndex = -1;
       });
     } else {
       setState(() {});
@@ -207,7 +344,9 @@ class _PomodoroTabState extends State<_PomodoroTab> {
     _running = true;
     _lastTickAt = DateTime.now();
     _tick = Timer.periodic(const Duration(milliseconds: 250), (_) => _onTick());
-    await _syncBoundaryNotifications();
+    _syncBoundaryNotifications();
+    // Remember the absolute end time so a restart can resume the countdown.
+    await _persistActive();
   }
 
   void _pause() {
@@ -221,18 +360,23 @@ class _PomodoroTabState extends State<_PomodoroTab> {
     _tick?.cancel();
     _tick = null;
     _cancelBoundaryNotifications();
+    // Swap the live `endTime` for a fixed remaining-seconds marker so the
+    // timer parks (instead of counting down) across an app restart.
+    unawaited(_persistPaused());
   }
 
   void _reset() {
     _tick?.cancel();
     _tick = null;
     _cancelBoundaryNotifications();
+    unawaited(_clearPersistence());
     setState(() {
       _running = false;
       _finished = false;
       _elapsed = Duration.zero;
       _blocks = const [];
       _lastTickAt = null;
+      _lastChimedBlockIndex = -1;
     });
   }
 
@@ -240,6 +384,9 @@ class _PomodoroTabState extends State<_PomodoroTab> {
     _tick?.cancel();
     _tick = null;
     _cancelBoundaryNotifications();
+    unawaited(_clearPersistence());
+    // Ring a final chime when the last block naturally reaches zero.
+    _ringtonePlayer.playNotification();
     setState(() {
       _running = false;
       _finished = true;
@@ -454,14 +601,14 @@ class _PomodoroTabState extends State<_PomodoroTab> {
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            _blocks.isEmpty
+                            !_hydrated || _blocks.isEmpty
                                 ? 'Ready'
                                 : _phaseLabel(_blocks[_currentBlockIndex].phase),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.6,
-                              color: _blocks.isEmpty
+                              color: !_hydrated || _blocks.isEmpty
                                   ? cs.onSurfaceVariant
                                   : _phaseColor(cs, _blocks[_currentBlockIndex].phase),
                             ),
@@ -469,7 +616,7 @@ class _PomodoroTabState extends State<_PomodoroTab> {
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          _blocks.isEmpty
+                          !_hydrated || _blocks.isEmpty
                               ? '--:--'
                               : _formatSmart(_blockRemaining(_currentBlockIndex)),
                           style: TextStyle(
@@ -658,6 +805,9 @@ class _CountdownTimerTabState extends State<_CountdownTimerTab> {
   void _finish() {
     _tick?.cancel();
     _tick = null;
+    // Only reached when the countdown naturally hits zero — never on pause or
+    // reset. Use a brief (non-looping) notification ding, never an alarm loop.
+    _ringtonePlayer.playNotification();
     setState(() {
       _running = false;
       _finished = true;
