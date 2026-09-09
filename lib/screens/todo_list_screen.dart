@@ -606,6 +606,7 @@ class _AddCollectionSheet extends ConsumerStatefulWidget {
 class _AddCollectionSheetState extends ConsumerState<_AddCollectionSheet> {
   final _titleController = TextEditingController();
   final _itemControllers = <TextEditingController>[];
+  final _itemFocusNodes  = <FocusNode>[];
   final _titleFocus      = FocusNode();
   bool  _isSaving        = false;
 
@@ -617,11 +618,14 @@ class _AddCollectionSheetState extends ConsumerState<_AddCollectionSheet> {
       _titleController.text = col.title;
       for (final item in col.items) {
         _itemControllers.add(TextEditingController(text: item.text));
+        _itemFocusNodes.add(FocusNode());
       }
     }
     if (_itemControllers.isEmpty) {
       _itemControllers.add(TextEditingController());
+      _itemFocusNodes.add(FocusNode());
       _itemControllers.add(TextEditingController());
+      _itemFocusNodes.add(FocusNode());
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _titleFocus.requestFocus());
   }
@@ -633,16 +637,28 @@ class _AddCollectionSheetState extends ConsumerState<_AddCollectionSheet> {
     for (final c in _itemControllers) {
       c.dispose();
     }
+    for (final n in _itemFocusNodes) {
+      n.dispose();
+    }
     super.dispose();
   }
 
-  void _addItemField() => setState(() => _itemControllers.add(TextEditingController()));
+  void _addItemField() {
+    final focusNode = FocusNode();
+    setState(() {
+      _itemControllers.add(TextEditingController());
+      _itemFocusNodes.add(focusNode);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => focusNode.requestFocus());
+  }
 
   void _removeItemField(int index) {
     if (_itemControllers.length <= 1) return;
     setState(() {
       _itemControllers[index].dispose();
       _itemControllers.removeAt(index);
+      _itemFocusNodes[index].dispose();
+      _itemFocusNodes.removeAt(index);
     });
   }
 
@@ -742,6 +758,7 @@ class _AddCollectionSheetState extends ConsumerState<_AddCollectionSheet> {
                           Expanded(
                             child: TextField(
                               controller: _itemControllers[i],
+                              focusNode:  _itemFocusNodes[i],
                               textCapitalization: TextCapitalization.sentences,
                               style: theme.textTheme.bodyMedium,
                               decoration: InputDecoration(
