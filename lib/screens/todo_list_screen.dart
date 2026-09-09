@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
+import '../models/local_note_model.dart';
+import '../providers/local_notes_provider.dart';
 import '../providers/spaces_provider.dart';
 import '../providers/todo_collection_provider.dart';
 import '../services/firestore_service.dart';
+import 'create_text_screen.dart';
 
 // ---------------------------------------------------------------------------
 // TodoListScreen with Custom 4-Tab Segregation Header
@@ -19,6 +22,7 @@ class TodoListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final collectionsAsync = ref.watch(mergedTodoCollectionsProvider);
+    final localNotes = ref.watch(localNotesProvider);
 
     return DefaultTabController(
       length: 4,
@@ -66,7 +70,7 @@ class TodoListScreen extends ConsumerWidget {
             }).toList();
             return TabBarView(
               children: [
-                _buildAllTab(context, ref, pendingTasks, pendingLists),
+                _buildAllTab(context, ref, pendingTasks, pendingLists, localNotes),
                 _buildTasksTab(pendingTasks),
                 _buildListsTab(pendingLists),
                 _buildCompletedTab(completedItems),
@@ -81,8 +85,8 @@ class TodoListScreen extends ConsumerWidget {
 
   // ── Tab Layout Render Engines ─────────────────────────────────────────────
 
-  Widget _buildAllTab(BuildContext context, WidgetRef ref, List<TodoCollection> tasks, List<TodoCollection> lists) {
-    if (tasks.isEmpty && lists.isEmpty) {
+  Widget _buildAllTab(BuildContext context, WidgetRef ref, List<TodoCollection> tasks, List<TodoCollection> lists, List<LocalNoteModel> notes) {
+    if (tasks.isEmpty && lists.isEmpty && notes.isEmpty) {
       return _EmptyState(onAddList: () => _openAddEditSheet(context), onAddTask: () => _openAddTaskDialog(context, ref));
     }
     return ListView(
@@ -106,6 +110,12 @@ class TodoListScreen extends ConsumerWidget {
             itemCount: lists.length,
             itemBuilder: (ctx, i) => _CollectionCard(collection: lists[i]),
           ),
+        ],
+        if (notes.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _SectionHeader(title: 'Notes', count: notes.length),
+          const SizedBox(height: 10),
+          ...notes.map((note) => _NoteCard(note: note)),
         ],
       ],
     );
@@ -466,6 +476,84 @@ class _ItemPreviewRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Note Card (Google Keep Card Layout for local text notes)
+// ---------------------------------------------------------------------------
+
+class _NoteCard extends ConsumerWidget {
+  const _NoteCard({required this.note});
+  final LocalNoteModel note;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Card(
+      elevation: 0,
+      color: cs.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.6)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onLongPress: () async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Delete note?'),
+              content: Text('Delete "${note.title ?? 'Untitled note'}"? This cannot be undone.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+              ],
+            ),
+          );
+          if (confirmed == true) {
+            await ref.read(localNotesProvider.notifier).removeNote(note.id);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.notes_rounded, size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      note.title ?? 'Untitled note',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
+                        letterSpacing: -0.2,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                note.content,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurface.withValues(alpha: 0.7),
+                ),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Expanding Overlay Floating Action Plus Button Action Sheet
 // ---------------------------------------------------------------------------
 
@@ -504,6 +592,18 @@ class _ExpandingSpeedDialFabState extends ConsumerState<_ExpandingSpeedDialFab> 
             onTap: () {
               _toggleMenu();
               TodoListScreen._openAddTaskDialog(context, ref);
+            },
+          ),
+          const SizedBox(height: 10),
+          _buildDialOption(
+            icon: Icons.notes_rounded,
+            label: 'Create text',
+            onTap: () {
+              _toggleMenu();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CreateTextScreen()),
+              );
             },
           ),
           const SizedBox(height: 14),
