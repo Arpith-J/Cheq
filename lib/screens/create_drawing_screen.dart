@@ -1,8 +1,5 @@
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,16 +54,9 @@ class _CreateDrawingScreenState extends ConsumerState<CreateDrawingScreen> {
     super.dispose();
   }
 
-  Future<ui.Image> _renderCanvas() async {
-    return _notifier.renderImage(
-      size: const Size(1080, 1920),
-      pixelRatio: 1.0,
-    );
-  }
-
-  Future<Uint8List> _imageToBytes(ui.Image image) async {
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    return byteData!.buffer.asUint8List();
+  Future<Uint8List> _renderCanvas() async {
+    final data = await _notifier.renderImage(pixelRatio: 2.0);
+    return data.buffer.asUint8List();
   }
 
   Future<Uint8List> _compressToJpeg(Uint8List rawPng) async {
@@ -84,9 +74,7 @@ class _CreateDrawingScreenState extends ConsumerState<CreateDrawingScreen> {
   Future<void> _save() async {
     setState(() => _isSaving = true);
     try {
-      final image = await _renderCanvas();
-      final rawBytes = await _imageToBytes(image);
-      image.dispose();
+      final rawBytes = await _renderCanvas();
 
       final compressedBytes = await _compressToJpeg(rawBytes);
 
