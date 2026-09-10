@@ -11,8 +11,7 @@ import '../providers/local_notes_provider.dart';
 import '../providers/spaces_provider.dart';
 import '../providers/todo_collection_provider.dart';
 import '../services/firestore_service.dart';
-import 'create_drawing_screen.dart';
-import 'create_text_screen.dart';
+import 'create_note_screen.dart';
 import 'note_viewer_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -681,24 +680,12 @@ class _ExpandingSpeedDialFabState extends ConsumerState<_ExpandingSpeedDialFab> 
           const SizedBox(height: 10),
           _buildDialOption(
             icon: Icons.notes_rounded,
-            label: 'Create text',
+            label: 'Create notes',
             onTap: () {
               _toggleMenu();
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const CreateTextScreen()),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          _buildDialOption(
-            icon: Icons.draw_rounded,
-            label: 'Create drawing',
-            onTap: () {
-              _toggleMenu();
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CreateDrawingScreen()),
+                MaterialPageRoute(builder: (_) => const CreateNoteScreen()),
               );
             },
           ),
