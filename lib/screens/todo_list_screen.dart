@@ -4,13 +4,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/local_note_model.dart';
 import '../providers/local_notes_provider.dart';
 import '../providers/spaces_provider.dart';
 import '../providers/todo_collection_provider.dart';
 import '../services/firestore_service.dart';
+import 'create_drawing_screen.dart';
 import 'create_text_screen.dart';
+import 'note_viewer_screen.dart';
 
 // ---------------------------------------------------------------------------
 // TodoListScreen with Custom 4-Tab Segregation Header
@@ -483,10 +486,19 @@ class _NoteCard extends ConsumerWidget {
   const _NoteCard({required this.note});
   final LocalNoteModel note;
 
+  void _shareNote(LocalNoteModel note) {
+    if (note.type == NoteType.drawing && note.filePath != null) {
+      Share.shareXFiles([XFile(note.filePath!)]);
+    } else {
+      Share.share(note.content);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isDrawing = note.type == NoteType.drawing;
 
     return Card(
       elevation: 0,
@@ -497,6 +509,14 @@ class _NoteCard extends ConsumerWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => NoteViewerScreen(note: note),
+            ),
+          );
+        },
         onLongPress: () async {
           final confirmed = await showDialog<bool>(
             context: context,
@@ -520,11 +540,15 @@ class _NoteCard extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.notes_rounded, size: 16, color: cs.primary),
+                  Icon(
+                    isDrawing ? Icons.draw_rounded : Icons.notes_rounded,
+                    size: 16,
+                    color: cs.primary,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      note.title ?? 'Untitled note',
+                      note.title ?? (isDrawing ? 'Drawing' : 'Untitled note'),
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: cs.onSurface,
@@ -534,21 +558,81 @@ class _NoteCard extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  GestureDetector(
+                    onTap: () => _shareNote(note),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Icon(Icons.ios_share, size: 16, color: cs.onSurface.withValues(alpha: 0.45)),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
-              Text(
-                note.content,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: cs.onSurface.withValues(alpha: 0.7),
+              if (isDrawing)
+                _DrawingThumbnail(note: note)
+              else
+                Text(
+                  note.content,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.7),
+                  ),
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-              ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DrawingThumbnail extends ConsumerWidget {
+  const _DrawingThumbnail({required this.note});
+  final LocalNoteModel note;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    return FutureBuilder(
+      future: ref.read(localNotesProvider.notifier).readDrawingBytes(note),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            height: 120,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+        if (!snapshot.hasData || snapshot.data == null) {
+          return Container(
+            height: 80,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Icon(
+                Icons.broken_image_rounded,
+                size: 24,
+                color: cs.onSurface.withValues(alpha: 0.3),
+              ),
+            ),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            snapshot.data!,
+            height: 120,
+            width: double.infinity,
+            fit: BoxFit.cover,
+          ),
+        );
+      },
     );
   }
 }
@@ -603,6 +687,18 @@ class _ExpandingSpeedDialFabState extends ConsumerState<_ExpandingSpeedDialFab> 
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const CreateTextScreen()),
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          _buildDialOption(
+            icon: Icons.draw_rounded,
+            label: 'Create drawing',
+            onTap: () {
+              _toggleMenu();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CreateDrawingScreen()),
               );
             },
           ),

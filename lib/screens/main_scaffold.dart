@@ -8,6 +8,7 @@ import 'todo_list_screen.dart';
 import 'daily_planner_screen.dart';
 import 'spaces_screen.dart';
 import '../providers/coins_provider.dart';
+import '../providers/local_notes_provider.dart';
 import '../providers/rewards_provider.dart';
 import '../services/firestore_service.dart';
 import '../widgets/app_side_drawer.dart';
@@ -33,7 +34,10 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     // Frame-dependent: reading/invalidating Riverpod providers is not allowed
     // synchronously inside build(), so hydration runs right after the first
     // frame instead.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _hydrateCloudData());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hydrateCloudData();
+      ref.read(localNotesProvider.notifier).loadFromDisk();
+    });
   }
 
   /// Explicitly fetches the user's `users/{uid}` document from Firestore and
