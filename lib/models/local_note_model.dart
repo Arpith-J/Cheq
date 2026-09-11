@@ -8,6 +8,14 @@ class LocalNoteModel {
   final String? filePath;
   final NoteType type;
 
+  /// JSON string of the Quill document (obtained from
+  /// `document.toDelta().toJson()`). Null for legacy text/drawing notes.
+  final String? quillDelta;
+
+  /// JSON string of the saved drawing strokes (colors and thickness included).
+  /// Null for legacy text notes.
+  final String? vectorStrokes;
+
   const LocalNoteModel({
     required this.id,
     required this.createdAt,
@@ -15,6 +23,8 @@ class LocalNoteModel {
     required this.content,
     this.filePath,
     this.type = NoteType.text,
+    this.quillDelta,
+    this.vectorStrokes,
   });
 
   LocalNoteModel copyWith({
@@ -24,6 +34,8 @@ class LocalNoteModel {
     String? content,
     String? filePath,
     NoteType? type,
+    String? quillDelta,
+    String? vectorStrokes,
   }) {
     return LocalNoteModel(
       id: id ?? this.id,
@@ -32,6 +44,8 @@ class LocalNoteModel {
       content: content ?? this.content,
       filePath: filePath ?? this.filePath,
       type: type ?? this.type,
+      quillDelta: quillDelta ?? this.quillDelta,
+      vectorStrokes: vectorStrokes ?? this.vectorStrokes,
     );
   }
 
@@ -42,6 +56,8 @@ class LocalNoteModel {
         'content': content,
         'filePath': filePath,
         'type': type.name,
+        'quillDelta': quillDelta,
+        'vectorStrokes': vectorStrokes,
       };
 
   factory LocalNoteModel.fromMap(Map<String, dynamic> map) => LocalNoteModel(
@@ -54,5 +70,7 @@ class LocalNoteModel {
           (e) => e.name == map['type'],
           orElse: () => NoteType.text,
         ),
+        quillDelta: map['quillDelta'] as String?,
+        vectorStrokes: map['vectorStrokes'] as String?,
       );
 }

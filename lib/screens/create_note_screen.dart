@@ -4,6 +4,7 @@
 // Top layer: Scribble drawing canvas (transparent background, IgnorePointer
 // managed by the NoteMode state so strokes and the keyboard never fight).
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -17,9 +18,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:perfect_freehand/perfect_freehand.dart' as pf;
 import 'package:scribble/scribble.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/local_note_model.dart';
 import '../providers/local_notes_provider.dart';
+import '../utils/hybrid_note_exporter.dart';
 
 /// The current editing surface of the hybrid note.
 enum NoteMode { text, drawing }
@@ -27,7 +30,11 @@ enum NoteMode { text, drawing }
 enum _DrawingTool { pen, highlighter, eraser, lasso }
 
 class CreateNoteScreen extends ConsumerStatefulWidget {
-  const CreateNoteScreen({super.key});
+  const CreateNoteScreen({super.key, this.initialNote});
+
+  /// When provided, the screen boots into re-editing mode and pre-loads the
+  /// saved Quill document (rich text) and vector strokes from this note.
+  final LocalNoteModel? initialNote;
 
   @override
   ConsumerState<CreateNoteScreen> createState() => _CreateNoteScreenState();
@@ -35,10 +42,11 @@ class CreateNoteScreen extends ConsumerStatefulWidget {
 
 class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   final _titleController = TextEditingController();
-  final _quillController = QuillController.basic();
+  late final QuillController _quillController;
   final _scrollController = ScrollController();
   final _editorKey = GlobalKey<EditorState>();
   final _contentFocus = FocusNode();
+  final _noteBoundaryKey = GlobalKey();
   late final ScribbleNotifier _scribble;
 
   NoteMode _mode = NoteMode.text;
@@ -46,13 +54,27 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
 
   // ── Text formatting foundation ───────────────────────────────────────────
   String? _fontFamily;
-  static const _fontSizes = ['12', '14', '16', '18', '22', '26'];
+  static const _fontSizes = [12.0, 14.0, 16.0, 18.0, 20.0, 24.0];
   int _fontSizeIndex = 2;
   Color? _textColor;
+  static const _textColors = [
+    Colors.white,
+    Colors.grey,
+    Colors.black,
+    Colors.red,
+    Colors.orange,
+    Colors.amber,
+    Colors.green,
+    Colors.teal,
+    Colors.blue,
+    Colors.indigo,
+    Colors.purple,
+    Colors.pink,
+    Colors.brown,
+  ];
 
   // ── Drawing state ────────────────────────────────────────────────────────
-  static const _strokeWidths = [2.0, 4.0, 8.0, 14.0];
-  int _strokeWidthIndex = 1;
+  double _strokeWidth = 4.0;
   static const _penColors = [
     Colors.black,
     Colors.grey,
@@ -68,10 +90,11 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     Colors.brown,
   ];
   Color _selectedColor = Colors.black;
-  Color _paperColor = Colors.white;
+  Color _paperColor = Colors.black;
   _DrawingTool _activeTool = _DrawingTool.pen;
-  static const _highlightColor = Color(0x66FFEB3B);
-  static const _highlightWidth = 18.0;
+  double _highlightWidth = 16.0;
+  Color _highlightColor = const Color(0x66FFEB3B);
+  static const _highlightOpacity = 0.4;
 
   // ── Lasso selection state ────────────────────────────────────────────────
   List<Offset> _lassoPoints = [];
@@ -111,7 +134,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   bool get _isUnderline =>
       _selectionStyle.attributes.containsKey(Attribute.underline.key);
 
-  double get _fontSize => double.parse(_fontSizes[_fontSizeIndex]);
+  double get _fontSize => _fontSizes[_fontSizeIndex];
 
   String _colorToHex(Color color) {
     final r = (color.r * 255).round().toRadixString(16).padLeft(2, '0');
@@ -123,12 +146,55 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   @override
   void initState() {
     super.initState();
-    _scribble = ScribbleNotifier();
+    final note = widget.initialNote;
+    _titleController.text = note?.title ?? '';
+    _quillController = QuillController(
+      document: _buildInitialDocument(note),
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+    _scribble = ScribbleNotifier(sketch: _decodeInitialSketch(note));
+    if (note != null && note.type == NoteType.drawing) {
+      _mode = NoteMode.drawing;
+    }
     _scribble.addListener(_onSketchChanged);
     _lastObservedSketch = _scribble.currentSketch;
     _quillController.addListener(_onEditorChanged);
     _syncToggledStyle();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _contentFocus.requestFocus());
+    if (_mode == NoteMode.text) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _contentFocus.requestFocus());
+    }
+  }
+
+  /// Rebuilds the Quill document from the saved `quillDelta` JSON string.
+  /// Falls back to the plain-text `content` for legacy notes.
+  Document _buildInitialDocument(LocalNoteModel? note) {
+    if (note?.quillDelta != null) {
+      try {
+        return Document.fromJson(jsonDecode(note!.quillDelta!) as List);
+      } catch (_) {
+        // Corrupt delta - fall through to the plain-text fallback.
+      }
+    }
+    if (note != null && note.content.isNotEmpty) {
+      final text = note.content;
+      return Document.fromJson([
+        {'insert': text.endsWith('\n') ? text : '$text\n'},
+      ]);
+    }
+    return Document();
+  }
+
+  /// Rebuilds the vector strokes from the saved `vectorStrokes` JSON string.
+  Sketch? _decodeInitialSketch(LocalNoteModel? note) {
+    if (note?.vectorStrokes == null) return null;
+    try {
+      return Sketch.fromJson(
+        jsonDecode(note!.vectorStrokes!) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Pushes the effective text color/size into the controller's toggled style
@@ -192,28 +258,38 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   RenderAbstractEditor? get _editor =>
       _editorKey.currentState?.renderEditor;
 
-  /// Single tap: place the cursor at the far-left start of the tapped line.
-  void _placeCursorAtLineStart() {
-    _placeCursorAt(_lastTapGlobal, lineStart: true);
-  }
-
-  /// Double tap: place the cursor at the exact character offset that was hit.
-  void _placeCursorExactly() {
-    _placeCursorAt(_lastDoubleTapGlobal, lineStart: false);
-  }
-
-  void _placeCursorAt(Offset globalPosition, {required bool lineStart}) {
+  /// Single tap: place the cursor at the far-left start of an empty tapped
+  /// line, otherwise at the end of the text on the tapped line.
+  void _placeCursorSmartly() {
     final editor = _editor;
     if (editor == null) return;
 
-    final position = editor.getPositionForOffset(globalPosition);
-    final target = lineStart
-        ? editor.getLineAtOffset(position).baseOffset
-        : position.offset;
+    final position = editor.getPositionForOffset(_lastTapGlobal);
+    final line = editor.getLineAtOffset(position);
+    final lineText = _quillController.document.getPlainText(
+      line.baseOffset,
+      line.extentOffset - line.baseOffset,
+    );
+    // Empty line -> far left; non-empty line -> end of its text.
+    final target = lineText.trim().isEmpty ? line.baseOffset : line.extentOffset;
 
     _contentFocus.requestFocus();
     _quillController.updateSelection(
       TextSelection.collapsed(offset: target),
+      ChangeSource.local,
+    );
+  }
+
+  /// Double tap: place the cursor at the exact character offset that was hit.
+  void _placeCursorExactly() {
+    final editor = _editor;
+    if (editor == null) return;
+
+    final position = editor.getPositionForOffset(_lastDoubleTapGlobal);
+
+    _contentFocus.requestFocus();
+    _quillController.updateSelection(
+      TextSelection.collapsed(offset: position.offset),
       ChangeSource.local,
     );
   }
@@ -261,55 +337,109 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     setState(() => _isSaving = true);
     try {
       final now = DateTime.now();
+      final isEditing = widget.initialNote != null;
+
       final title = _titleController.text.trim().isEmpty
           ? null
           : _titleController.text.trim();
 
-      if (_mode == NoteMode.drawing) {
+      // Hybrid payload: the full rich-text Quill delta plus the vector strokes.
+      final quillDeltaJson =
+          jsonEncode(_quillController.document.toDelta().toJson());
+      final vectorStrokesJson = jsonEncode(_scribble.currentSketch.toJson());
+
+      final plainText = _quillController.document.toPlainText().trim();
+      final hasStrokes = _scribble.currentSketch.lines.isNotEmpty;
+
+      if (!hasStrokes && plainText.isEmpty && title == null) {
+        _contentFocus.requestFocus();
+        return;
+      }
+
+      // Render a raster thumbnail of the canvas so the note stays displayable
+      // in the existing card/thumbnail surfaces (as before).
+      String? filePath;
+      if (hasStrokes) {
         final rawBytes = await _renderCanvasWithPaper();
         final compressedBytes = await _compressToJpeg(rawBytes);
 
         final dir = await getApplicationDocumentsDirectory();
-        final filePath = '${dir.path}/drawing_${now.millisecondsSinceEpoch}.jpg';
+        filePath = '${dir.path}/drawing_${now.millisecondsSinceEpoch}.jpg';
         await File(filePath).writeAsBytes(compressedBytes, flush: true);
-
-        final note = LocalNoteModel(
-          id: 'note_${now.millisecondsSinceEpoch}',
-          createdAt: now,
-          title: title,
-          content: 'Drawing',
-          filePath: filePath,
-          type: NoteType.drawing,
-        );
-        await ref.read(localNotesProvider.notifier).addNote(note);
-        if (mounted) Navigator.pop(context, note);
-      } else {
-        final content = _quillController.document.toPlainText().trim();
-        if (content.isEmpty) {
-          _contentFocus.requestFocus();
-          return;
-        }
-        final note = LocalNoteModel(
-          id: 'note_${now.millisecondsSinceEpoch}',
-          createdAt: now,
-          title: title,
-          content: content,
-          type: NoteType.text,
-        );
-        await ref.read(localNotesProvider.notifier).addNote(note);
-        if (mounted) Navigator.pop(context, note);
+      } else if (isEditing &&
+          widget.initialNote!.filePath != null &&
+          widget.initialNote!.vectorStrokes == null) {
+        // Legacy raster-only drawing opened in the editor with an empty
+        // canvas: keep the original image untouched instead of losing it.
+        filePath = widget.initialNote!.filePath;
       }
+
+      final isDrawingNote = hasStrokes || filePath != null;
+      final note = LocalNoteModel(
+        id: isEditing ? widget.initialNote!.id : 'note_${now.millisecondsSinceEpoch}',
+        createdAt: isEditing ? widget.initialNote!.createdAt : now,
+        title: title,
+        content: isDrawingNote
+            ? (plainText.isEmpty ? 'Drawing' : plainText)
+            : plainText,
+        filePath: filePath,
+        type: isDrawingNote ? NoteType.drawing : NoteType.text,
+        quillDelta: quillDeltaJson,
+        vectorStrokes: vectorStrokesJson,
+      );
+
+      if (isEditing) {
+        // Drop the previously rendered thumbnail once it is replaced. A legacy
+        // raster drawing (no strokes data) is preserved above and never pruned.
+        final oldPath = widget.initialNote!.filePath;
+        final shouldCleanOld =
+            filePath != null || widget.initialNote!.vectorStrokes != null;
+        if (oldPath != null && shouldCleanOld && oldPath != filePath) {
+          final oldFile = File(oldPath);
+          if (await oldFile.exists()) await oldFile.delete();
+        }
+        await ref.read(localNotesProvider.notifier).updateNote(note);
+      } else {
+        await ref.read(localNotesProvider.notifier).addNote(note);
+      }
+      if (mounted) Navigator.pop(context, note);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
+  /// Rasterizes the whole hybrid note (text + drawings) into a flattened JPEG
+  /// in the cache directory and hands it to the share sheet.
+  Future<void> _share() async {
+    if (_isSaving) return;
+    _commitLassoTranslation();
+    _contentFocus.unfocus();
+    // Let the keyboard dismissal re-layout the body before capturing so the
+    // entire canvas is visible in the composite image.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    final path = await HybridNoteExporter.exportToJpeg(
+      _noteBoundaryKey,
+      pixelRatio: 3.0,
+      quality: 90,
+    );
+    if (!mounted) return;
+
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not export note as an image')),
+      );
+      return;
+    }
+    await Share.shareXFiles([XFile(path)]);
+  }
+
   // ── Text toolbar actions ─────────────────────────────────────────────────
 
-  void _cycleFontSize() {
-    setState(() => _fontSizeIndex = (_fontSizeIndex + 1) % _fontSizes.length);
+  void _applyFontSize(double size) {
+    setState(() => _fontSizeIndex = _fontSizes.indexOf(size));
     _quillController.formatSelection(
-      Attribute.clone(Attribute.size, _fontSizes[_fontSizeIndex]),
+      Attribute.clone(Attribute.size, size),
     );
   }
 
@@ -367,16 +497,141 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   }
 
   void _showTextColorPicker() {
-    Color pickerColor = _effectiveTextColor;
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          bool isSelected(Color color) =>
+              _textColor?.toARGB32() == color.toARGB32();
+
+          void selectColor(Color color) {
+            setState(() => _textColor = color);
+            _quillController.formatSelection(
+              Attribute.clone(Attribute.color, _colorToHex(color)),
+            );
+            Navigator.pop(sheetContext);
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 0, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('Text color',
+                          style: Theme.of(sheetContext)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700)),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () {
+                          setState(() => _textColor = null);
+                          _quillController.formatSelection(
+                            Attribute.clone(Attribute.color, null),
+                          );
+                          Navigator.pop(sheetContext);
+                        },
+                        child: const Text('Auto'),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 44,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _textColors.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == _textColors.length) {
+                          // Rainbow entry -> full custom color picker.
+                          return GestureDetector(
+                            onTap: () async {
+                              final picked = await _pickCustomTextColor(
+                                sheetContext,
+                                initial: _effectiveTextColor,
+                              );
+                              if (picked == null || !sheetContext.mounted) {
+                                return;
+                              }
+                              selectColor(picked);
+                            },
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              margin: const EdgeInsets.only(right: 10),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: SweepGradient(colors: [
+                                  Colors.red,
+                                  Colors.yellow,
+                                  Colors.green,
+                                  Colors.cyan,
+                                  Colors.blue,
+                                  Colors.purple,
+                                  Colors.red,
+                                ]),
+                              ),
+                              child: const Icon(Icons.colorize,
+                                  color: Colors.white, size: 18),
+                            ),
+                          );
+                        }
+                        final color = _textColors[index];
+                        final selected = isSelected(color);
+                        return GestureDetector(
+                          onTap: () => selectColor(color),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            margin: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selected
+                                    ? Theme.of(sheetContext).colorScheme.primary
+                                    : Colors.black26,
+                                width: selected ? 3 : 1,
+                              ),
+                            ),
+                            child: isSelected(color)
+                                ? const Icon(Icons.check_rounded,
+                                    color: Colors.white, size: 16)
+                                : null,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<Color?> _pickCustomTextColor(
+    BuildContext dialogContext, {
+    required Color initial,
+  }) {
+    Color pickerColor = initial;
+    return showDialog<Color>(
+      context: dialogContext,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Text color'),
           content: SingleChildScrollView(
             child: ColorPicker(
               pickerColor: pickerColor,
-              onColorChanged: (color) => setDialogState(() => pickerColor = color),
+              onColorChanged: (color) =>
+                  setDialogState(() => pickerColor = color),
               pickerAreaHeightPercent: 0.8,
               enableAlpha: false,
               displayThumbColor: true,
@@ -384,27 +639,11 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                setState(() => _textColor = null);
-                _quillController.formatSelection(
-                  Attribute.clone(Attribute.color, null),
-                );
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('Auto'),
-            ),
-            TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
-                setState(() => _textColor = pickerColor);
-                _quillController.formatSelection(
-                  Attribute.clone(Attribute.color, _colorToHex(pickerColor)),
-                );
-                Navigator.pop(dialogContext);
-              },
+              onPressed: () => Navigator.pop(dialogContext, pickerColor),
               child: const Text('Apply'),
             ),
           ],
@@ -415,17 +654,27 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
 
   // ── Drawing toolbar actions ──────────────────────────────────────────────
 
+  void _applyActiveToolStyle() {
+    if (_activeTool == _DrawingTool.highlighter) {
+      _scribble.setColor(_highlightColor);
+      _scribble.setStrokeWidth(_highlightWidth);
+    } else {
+      _scribble.setColor(_selectedColor);
+      _scribble.setStrokeWidth(_strokeWidth);
+    }
+    if (mounted) setState(() {});
+  }
+
   void _selectPen() {
     _commitLassoTranslation();
     setState(() => _activeTool = _DrawingTool.pen);
-    _scribble.setColor(_selectedColor);
-    _scribble.setStrokeWidth(_strokeWidths[_strokeWidthIndex]);
+    _applyActiveToolStyle();
   }
 
   void _selectHighlighter() {
+    _commitLassoTranslation();
     setState(() => _activeTool = _DrawingTool.highlighter);
-    _scribble.setColor(_highlightColor);
-    _scribble.setStrokeWidth(_highlightWidth);
+    _applyActiveToolStyle();
   }
 
   void _selectEraser() {
@@ -446,12 +695,46 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     setState(() => _activeTool = _DrawingTool.lasso);
   }
 
-  void _openPenConfigDialog() {
+  void _openToolStyleDialog() {
+    final isHighlighter = _activeTool == _DrawingTool.highlighter;
+
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
           final cs = Theme.of(sheetContext).colorScheme;
+
+          Color swatchFor(Color base) => isHighlighter
+              ? base.withValues(alpha: _highlightOpacity)
+              : base;
+
+          bool isColorSelected(Color swatch) =>
+              swatch.toARGB32() ==
+              (isHighlighter ? _highlightColor : _selectedColor).toARGB32();
+
+          void selectWidth(double w) {
+            setSheetState(() {
+              if (isHighlighter) {
+                _highlightWidth = w;
+              } else {
+                _strokeWidth = w;
+              }
+            });
+            _applyActiveToolStyle();
+          }
+
+          void selectColor(Color base) {
+            final swatch = swatchFor(base);
+            setSheetState(() {
+              if (isHighlighter) {
+                _highlightColor = swatch;
+              } else {
+                _selectedColor = base;
+              }
+            });
+            _applyActiveToolStyle();
+          }
+
           return SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -459,54 +742,54 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Pen',
+                  Text(isHighlighter ? 'Highlighter' : 'Pen',
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
                           ?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 16),
-                  Text('Thickness',
-                      style: Theme.of(sheetContext)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(
-                              color: cs.onSurface.withValues(alpha: 0.5))),
-                  const SizedBox(height: 8),
                   Row(
-                    children: List.generate(_strokeWidths.length, (i) {
-                      final w = _strokeWidths[i];
-                      final isSelected = i == _strokeWidthIndex;
-                      return GestureDetector(
-                        onTap: () {
-                          setSheetState(() => _strokeWidthIndex = i);
-                          _scribble.setStrokeWidth(w);
-                        },
-                        child: Container(
-                          width: 40,
-                          height: 36,
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            color: isSelected ? cs.primaryContainer : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isSelected
-                                  ? cs.primary
-                                  : cs.outlineVariant.withValues(alpha: 0.4),
-                            ),
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: w * 2,
-                              height: w * 2,
-                              decoration: const BoxDecoration(
-                                color: Colors.black,
-                                shape: BoxShape.circle,
-                              ),
+                    children: [
+                      Text('Thickness',
+                          style: Theme.of(sheetContext)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                  color: cs.onSurface.withValues(alpha: 0.5))),
+                      const Spacer(),
+                      Text(
+                        '${(isHighlighter ? _highlightWidth : _strokeWidth).round()}',
+                        style: Theme.of(sheetContext).textTheme.labelMedium,
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: isHighlighter ? _highlightWidth : _strokeWidth,
+                    min: isHighlighter ? 4.0 : 1.0,
+                    max: isHighlighter ? 40.0 : 20.0,
+                    onChanged: selectWidth,
+                  ),
+                  Row(
+                    children: [
+                      for (final w in [
+                        isHighlighter ? 4.0 : 1.0,
+                        isHighlighter ? 16.0 : 6.0,
+                        isHighlighter ? 40.0 : 20.0,
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: Container(
+                            width: w.clamp(2, 24) * 2,
+                            height: w.clamp(2, 24) * 2,
+                            decoration: BoxDecoration(
+                              color: isHighlighter
+                                  ? _highlightColor
+                                  : Colors.black,
+                              shape: BoxShape.circle,
                             ),
                           ),
                         ),
-                      );
-                    }),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   Text('Color',
@@ -516,56 +799,76 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
                           ?.copyWith(
                               color: cs.onSurface.withValues(alpha: 0.5))),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      for (final c in _penColors)
-                        GestureDetector(
-                          onTap: () {
-                            setSheetState(() => _selectedColor = c);
-                            _scribble.setColor(c);
-                          },
+                  SizedBox(
+                    height: 40,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _penColors.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == _penColors.length) {
+                          return GestureDetector(
+                            onTap: () async {
+                              final initial = isHighlighter
+                                  ? _highlightColor
+                                  : _selectedColor;
+                              final picked = await _pickCustomColor(
+                                sheetContext,
+                                initial: initial,
+                                isHighlighter: isHighlighter,
+                              );
+                              if (picked == null || !sheetContext.mounted) {
+                                return;
+                              }
+                              selectColor(picked);
+                            },
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              margin: const EdgeInsets.only(right: 12),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: SweepGradient(colors: [
+                                  Colors.red,
+                                  Colors.yellow,
+                                  Colors.green,
+                                  Colors.cyan,
+                                  Colors.blue,
+                                  Colors.purple,
+                                  Colors.red,
+                                ]),
+                              ),
+                              child: const Icon(Icons.colorize,
+                                  color: Colors.white, size: 16),
+                            ),
+                          );
+                        }
+                        final c = _penColors[index];
+                        final swatch = swatchFor(c);
+                        final selected = isColorSelected(swatch);
+                        return GestureDetector(
+                          onTap: () => selectColor(c),
                           child: Container(
-                            width: 32,
-                            height: 32,
-                            margin: const EdgeInsets.only(right: 8),
+                            width: 36,
+                            height: 36,
+                            margin: const EdgeInsets.only(right: 12),
                             decoration: BoxDecoration(
-                              color: c,
+                              color: swatch,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: c.toARGB32() == _selectedColor.toARGB32()
+                                color: selected
                                     ? cs.primary
                                     : cs.outlineVariant.withValues(alpha: 0.4),
-                                width: c.toARGB32() == _selectedColor.toARGB32() ? 3 : 1,
+                                width: selected ? 3 : 1,
                               ),
                             ),
-                            child: c.toARGB32() == _selectedColor.toARGB32()
+                            child: selected
                                 ? const Icon(Icons.check_rounded,
                                     color: Colors.white, size: 16)
                                 : null,
                           ),
-                        ),
-                      GestureDetector(
-                        onTap: () => _showCustomPenColor(sheetContext),
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: SweepGradient(colors: [
-                              Colors.red,
-                              Colors.yellow,
-                              Colors.green,
-                              Colors.cyan,
-                              Colors.blue,
-                              Colors.purple,
-                              Colors.red,
-                            ]),
-                          ),
-                          child: const Icon(Icons.colorize,
-                              color: Colors.white, size: 16),
-                        ),
-                      ),
-                    ],
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -576,17 +879,23 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     );
   }
 
-  void _showCustomPenColor(BuildContext sheetContext) {
-    Color pickerColor = _selectedColor;
-    showDialog(
-      context: sheetContext,
+  Future<Color?> _pickCustomColor(
+    BuildContext dialogContext, {
+    required Color initial,
+    required bool isHighlighter,
+  }) {
+    Color pickerColor = initial;
+    return showDialog<Color>(
+      context: dialogContext,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Custom pen color'),
+          title: Text(
+              isHighlighter ? 'Highlighter color' : 'Custom pen color'),
           content: SingleChildScrollView(
             child: ColorPicker(
               pickerColor: pickerColor,
-              onColorChanged: (color) => setDialogState(() => pickerColor = color),
+              onColorChanged: (color) =>
+                  setDialogState(() => pickerColor = color),
               pickerAreaHeightPercent: 0.8,
               enableAlpha: false,
               displayThumbColor: true,
@@ -598,11 +907,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
-                setState(() => _selectedColor = pickerColor);
-                _scribble.setColor(pickerColor);
-                Navigator.pop(dialogContext);
-              },
+              onPressed: () => Navigator.pop(dialogContext, pickerColor),
               child: const Text('Apply'),
             ),
           ],
@@ -870,16 +1175,27 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: _paperColor,
       appBar: AppBar(
         backgroundColor: _paperColor,
+        foregroundColor: _effectiveTextColor,
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(_mode == NoteMode.text ? 'New Note' : 'New Drawing'),
+        title: Text(
+          _mode == NoteMode.text
+              ? (widget.initialNote != null ? 'Edit Note' : 'New Note')
+              : (widget.initialNote != null ? 'Edit Drawing' : 'New Drawing'),
+        ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.ios_share, size: 22),
+            tooltip: 'Share as image',
+            onPressed: _share,
+          ),
           FilledButton(
             onPressed: _isSaving ? null : _save,
             child: _isSaving
@@ -893,19 +1209,26 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
           const SizedBox(width: 12),
         ],
       ),
-      body: Stack(
-        children: [
-          _buildNoteLayer(cs),
-          Positioned.fill(
-            child: IgnorePointer(
-              ignoring:
-                  _mode == NoteMode.text || _activeTool == _DrawingTool.lasso,
-              child: Scribble(notifier: _scribble),
+      body: RepaintBoundary(
+        key: _noteBoundaryKey,
+        child: Stack(
+          children: [
+            // Explicitly painted background: guarantees the exported capture
+            // never falls back to a transparent (-> white) backdrop, which
+            // would otherwise swallow light/white content during export.
+            Container(color: _paperColor),
+            Positioned.fill(child: _buildNoteLayer(cs)),
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring:
+                    _mode == NoteMode.text || _activeTool == _DrawingTool.lasso,
+                child: Scribble(notifier: _scribble),
+              ),
             ),
-          ),
-          if (_mode == NoteMode.drawing && _activeTool == _DrawingTool.lasso)
-            Positioned.fill(child: _buildLassoOverlay()),
-        ],
+            if (_mode == NoteMode.drawing && _activeTool == _DrawingTool.lasso)
+              Positioned.fill(child: _buildLassoOverlay()),
+          ],
+        ),
       ),
       bottomNavigationBar: _buildToolbar(),
     );
@@ -966,7 +1289,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
                       behavior: HitTestBehavior.opaque,
                       onTapDown: (details) =>
                           _lastTapGlobal = details.globalPosition,
-                      onTap: _placeCursorAtLineStart,
+                      onTap: _placeCursorSmartly,
                       onDoubleTapDown: (details) =>
                           _lastDoubleTapGlobal = details.globalPosition,
                       onDoubleTap: _placeCursorExactly,
@@ -1007,14 +1330,17 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     final cs = Theme.of(context).colorScheme;
     return BottomAppBar(
       height: 64,
-      color: cs.surfaceContainerLow,
+      color: Colors.grey,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: _mode == NoteMode.text
-              ? _buildTextToolbar(cs)
-              : _buildDrawingToolbar(cs),
+      child: Focus(
+        canRequestFocus: false,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _mode == NoteMode.text
+                ? _buildTextToolbar(cs)
+                : _buildDrawingToolbar(cs),
+          ),
         ),
       ),
     );
@@ -1035,12 +1361,47 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
         onTap: _showFontChooser,
         selected: _fontFamily != null,
       ),
-      _toolbarButton(
-        cs,
-        icon: Icons.format_size_rounded,
+      PopupMenuButton<double>(
         tooltip: 'Font size',
-        onTap: _cycleFontSize,
-        label: '${_fontSize.round()}',
+        initialValue: _fontSize,
+        offset: const Offset(0, -160),
+        onSelected: (size) => _applyFontSize(size),
+        itemBuilder: (context) => [
+          for (final size in _fontSizes)
+            PopupMenuItem<double>(
+              value: size,
+              child: Text('${size.round()}'),
+            ),
+        ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.format_size_rounded,
+                  color: Colors.white, size: 22),
+              Positioned(
+                right: -10,
+                bottom: -2,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade800,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${_fontSize.round()}',
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       _toolbarButton(
         cs,
@@ -1105,7 +1466,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
       ),
       GestureDetector(
         onTap: _selectPen,
-        onDoubleTap: _openPenConfigDialog,
+        onDoubleTap: _openToolStyleDialog,
         child: _toolbarButton(
           cs,
           icon: Icons.edit_rounded,
@@ -1118,21 +1479,32 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
         width: 56,
         child: Center(
           child: Container(
-            width: _strokeWidths[_strokeWidthIndex] * 2,
-            height: _strokeWidths[_strokeWidthIndex] * 2,
+            width: (_activeTool == _DrawingTool.highlighter
+                        ? _highlightWidth
+                        : _strokeWidth) *
+                    2,
+            height: (_activeTool == _DrawingTool.highlighter
+                        ? _highlightWidth
+                        : _strokeWidth) *
+                    2,
             decoration: BoxDecoration(
-              color: _selectedColor,
+              color: _activeTool == _DrawingTool.highlighter
+                  ? _highlightColor
+                  : _selectedColor,
               shape: BoxShape.circle,
             ),
           ),
         ),
       ),
-      _toolbarButton(
-        cs,
-        icon: Icons.border_color_rounded,
-        tooltip: 'Highlighter',
+      GestureDetector(
         onTap: _selectHighlighter,
-        selected: _activeTool == _DrawingTool.highlighter,
+        onDoubleTap: _openToolStyleDialog,
+        child: _toolbarButton(
+          cs,
+          icon: Icons.border_color_rounded,
+          tooltip: 'Highlighter (double-tap for style)',
+          selected: _activeTool == _DrawingTool.highlighter,
+        ),
       ),
       _toolbarButton(
         cs,
@@ -1176,47 +1548,48 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
     String? label,
   }) {
     final foreground = !enabled
-        ? cs.onSurface.withValues(alpha: 0.25)
-        : selected
-            ? cs.onPrimaryContainer
-            : cs.onSurface;
+        ? Colors.white.withValues(alpha: 0.35)
+        : Colors.white;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: IconButton(
-        onPressed: enabled ? onTap : null,
-        tooltip: tooltip,
-        icon: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Icon(icon, color: foreground, size: 22),
-            if (label != null)
-              Positioned(
-                right: -10,
-                bottom: -2,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: cs.onSurface,
+      child: Focus(
+        canRequestFocus: false,
+        child: IconButton(
+          onPressed: enabled ? onTap : null,
+          tooltip: tooltip,
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(icon, color: foreground, size: 22),
+              if (label != null)
+                Positioned(
+                  right: -10,
+                  bottom: -2,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade800,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-        style: IconButton.styleFrom(
-          backgroundColor: selected && enabled
-              ? cs.primaryContainer
-              : Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ],
+          ),
+          style: IconButton.styleFrom(
+            backgroundColor: selected && enabled
+                ? Colors.black.withValues(alpha: 0.3)
+                : Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
         ),
       ),
     );

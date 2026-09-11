@@ -12,7 +12,6 @@ import '../providers/spaces_provider.dart';
 import '../providers/todo_collection_provider.dart';
 import '../services/firestore_service.dart';
 import 'create_note_screen.dart';
-import 'note_viewer_screen.dart';
 
 // ---------------------------------------------------------------------------
 // TodoListScreen with Custom 4-Tab Segregation Header
@@ -512,7 +511,7 @@ class _NoteCard extends ConsumerWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => NoteViewerScreen(note: note),
+              builder: (_) => CreateNoteScreen(initialNote: note),
             ),
           );
         },
