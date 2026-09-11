@@ -5,15 +5,17 @@
 // managed by the NoteMode state so strokes and the keyboard never fight).
 
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:perfect_freehand/perfect_freehand.dart' as pf;
 import 'package:scribble/scribble.dart';
 
 import '../models/local_note_model.dart';
@@ -33,8 +35,9 @@ class CreateNoteScreen extends ConsumerStatefulWidget {
 
 class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
-  final _contentKey = GlobalKey();
+  final _quillController = QuillController.basic();
+  final _scrollController = ScrollController();
+  final _editorKey = GlobalKey<EditorState>();
   final _contentFocus = FocusNode();
   late final ScribbleNotifier _scribble;
 
@@ -43,11 +46,8 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
 
   // ── Text formatting foundation ───────────────────────────────────────────
   String? _fontFamily;
-  static const _fontSizes = [12.0, 14.0, 16.0, 18.0, 22.0, 26.0];
+  static const _fontSizes = ['12', '14', '16', '18', '22', '26'];
   int _fontSizeIndex = 2;
-  bool _bold = false;
-  bool _italic = false;
-  bool _underline = false;
   Color? _textColor;
 
   // ── Drawing state ────────────────────────────────────────────────────────
@@ -73,6 +73,25 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   static const _highlightColor = Color(0x66FFEB3B);
   static const _highlightWidth = 18.0;
 
+  // ── Lasso selection state ────────────────────────────────────────────────
+  List<Offset> _lassoPoints = [];
+  bool _isDrawingLasso = false;
+  Set<int> _selectedStrokeIndices = {};
+  Rect? _selectionBounds;
+  Offset _lassoTranslation = Offset.zero;
+  bool _isDraggingSelection = false;
+  Offset? _lassoTapDown;
+  Sketch? _lastObservedSketch;
+
+  // While a selection is live, the selected strokes are temporarily removed
+  // from the Scribble sketch (via a non-undoable update) so they don't render
+  // at their original positions; the overlay repaints them at the translated
+  // offset instead. These fields track that agreed-upon state.
+  Sketch? _sketchBeforeLasso;
+  bool _isSketchReduced = false;
+  bool _isSettingLassoSketch = false;
+  bool _lassoStaleByExternalChange = false;
+
   // Cursor interaction capture points (global coords, resolved against the
   // RenderEditable below via an overlay hit-target that wins the arena).
   Offset _lastTapGlobal = Offset.zero;
@@ -83,19 +102,72 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   Color get _effectiveTextColor =>
       _textColor ?? (_paperIsLight ? const Color(0xFF202124) : Colors.white);
 
-  double get _fontSize => _fontSizes[_fontSizeIndex];
+  Style get _selectionStyle => _quillController.getSelectionStyle();
+
+  bool get _isBold =>
+      _selectionStyle.attributes.containsKey(Attribute.bold.key);
+  bool get _isItalic =>
+      _selectionStyle.attributes.containsKey(Attribute.italic.key);
+  bool get _isUnderline =>
+      _selectionStyle.attributes.containsKey(Attribute.underline.key);
+
+  double get _fontSize => double.parse(_fontSizes[_fontSizeIndex]);
+
+  String _colorToHex(Color color) {
+    final r = (color.r * 255).round().toRadixString(16).padLeft(2, '0');
+    final g = (color.g * 255).round().toRadixString(16).padLeft(2, '0');
+    final b = (color.b * 255).round().toRadixString(16).padLeft(2, '0');
+    return '#$r$g$b';
+  }
 
   @override
   void initState() {
     super.initState();
     _scribble = ScribbleNotifier();
+    _scribble.addListener(_onSketchChanged);
+    _lastObservedSketch = _scribble.currentSketch;
+    _quillController.addListener(_onEditorChanged);
+    _syncToggledStyle();
     WidgetsBinding.instance.addPostFrameCallback((_) => _contentFocus.requestFocus());
+  }
+
+  /// Pushes the effective text color/size into the controller's toggled style
+  /// so freshly typed characters inherit the current paper contrast.
+  void _syncToggledStyle() {
+    _quillController.toggledStyle = _quillController.toggledStyle.merge(
+      Attribute.clone(Attribute.color, _colorToHex(_effectiveTextColor)),
+    );
+  }
+
+  void _onEditorChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Drops any stale lasso selection when the underlying sketch changes
+  /// externally (undo/redo/erase), so selected indices never point at the
+  /// wrong strokes. Lasso-driven sketch swaps (reduce/merge/restore) are
+  /// excluded via [_isSettingLassoSketch].
+  void _onSketchChanged() {
+    final current = _scribble.currentSketch;
+    if (current != _lastObservedSketch) {
+      _lastObservedSketch = current;
+      if (_selectedStrokeIndices.isNotEmpty && !_isSettingLassoSketch) {
+        // The sketch changed through undo/redo/erase, not through the lasso
+        // engine - the pending selection is stale. Mark it so the clear step
+        // keeps the (already undone) canvas instead of restoring our snapshot.
+        _lassoStaleByExternalChange = true;
+        _clearLassoSelection();
+      }
+    }
   }
 
   @override
   void dispose() {
+    _quillController.removeListener(_onEditorChanged);
+    _scribble.removeListener(_onSketchChanged);
     _titleController.dispose();
-    _contentController.dispose();
+    _quillController.dispose();
+    _scrollController.dispose();
     _contentFocus.dispose();
     _scribble.dispose();
     super.dispose();
@@ -117,8 +189,8 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
 
   // ── Custom cursor interaction (Samsung-style tap semantics) ──────────────
 
-  RenderEditable? get _editable =>
-      _contentKey.currentContext?.findRenderObject() as RenderEditable?;
+  RenderAbstractEditor? get _editor =>
+      _editorKey.currentState?.renderEditor;
 
   /// Single tap: place the cursor at the far-left start of the tapped line.
   void _placeCursorAtLineStart() {
@@ -131,18 +203,18 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   }
 
   void _placeCursorAt(Offset globalPosition, {required bool lineStart}) {
-    final editable = _editable;
-    if (editable == null) return;
+    final editor = _editor;
+    if (editor == null) return;
 
-    final position = editable.getPositionForPoint(globalPosition);
+    final position = editor.getPositionForOffset(globalPosition);
     final target = lineStart
-        ? editable.getLineAtOffset(position).start
+        ? editor.getLineAtOffset(position).baseOffset
         : position.offset;
 
     _contentFocus.requestFocus();
-    _contentController.selection = TextSelection(
-      baseOffset: target,
-      extentOffset: target,
+    _quillController.updateSelection(
+      TextSelection.collapsed(offset: target),
+      ChangeSource.local,
     );
   }
 
@@ -185,6 +257,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
 
   Future<void> _save() async {
     if (_isSaving) return;
+    _commitLassoTranslation();
     setState(() => _isSaving = true);
     try {
       final now = DateTime.now();
@@ -211,7 +284,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
         await ref.read(localNotesProvider.notifier).addNote(note);
         if (mounted) Navigator.pop(context, note);
       } else {
-        final content = _contentController.text.trim();
+        final content = _quillController.document.toPlainText().trim();
         if (content.isEmpty) {
           _contentFocus.requestFocus();
           return;
@@ -235,6 +308,18 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
 
   void _cycleFontSize() {
     setState(() => _fontSizeIndex = (_fontSizeIndex + 1) % _fontSizes.length);
+    _quillController.formatSelection(
+      Attribute.clone(Attribute.size, _fontSizes[_fontSizeIndex]),
+    );
+  }
+
+  void _toggleAttribute(Attribute attribute) {
+    final enabled = _selectionStyle.attributes.containsKey(attribute.key);
+    _quillController
+      ..skipRequestKeyboard = !attribute.isInline
+      ..formatSelection(
+        enabled ? Attribute.clone(attribute, null) : attribute,
+      );
   }
 
   void _showFontChooser() {
@@ -267,6 +352,11 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
                     : null,
                 onTap: () {
                   setState(() => _fontFamily = option.$2);
+                  _quillController.formatSelection(
+                    option.$2 == null
+                        ? Attribute.clone(Attribute.font, null)
+                        : Attribute.clone(Attribute.font, option.$2),
+                  );
                   Navigator.pop(sheetContext);
                 },
               ),
@@ -296,6 +386,9 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
             TextButton(
               onPressed: () {
                 setState(() => _textColor = null);
+                _quillController.formatSelection(
+                  Attribute.clone(Attribute.color, null),
+                );
                 Navigator.pop(dialogContext);
               },
               child: const Text('Auto'),
@@ -307,6 +400,9 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
             ElevatedButton(
               onPressed: () {
                 setState(() => _textColor = pickerColor);
+                _quillController.formatSelection(
+                  Attribute.clone(Attribute.color, _colorToHex(pickerColor)),
+                );
                 Navigator.pop(dialogContext);
               },
               child: const Text('Apply'),
@@ -320,6 +416,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   // ── Drawing toolbar actions ──────────────────────────────────────────────
 
   void _selectPen() {
+    _commitLassoTranslation();
     setState(() => _activeTool = _DrawingTool.pen);
     _scribble.setColor(_selectedColor);
     _scribble.setStrokeWidth(_strokeWidths[_strokeWidthIndex]);
@@ -341,15 +438,12 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
   }
 
   void _selectLasso() {
+    if (_activeTool == _DrawingTool.lasso) {
+      _selectPen();
+      return;
+    }
+    _commitLassoTranslation();
     setState(() => _activeTool = _DrawingTool.lasso);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Lasso selection arrives in the next upgrade'),
-          duration: Duration(seconds: 1),
-        ),
-      );
   }
 
   void _openPenConfigDialog() {
@@ -541,6 +635,7 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
             ElevatedButton(
               onPressed: () {
                 setState(() => _paperColor = pickerColor);
+                _syncToggledStyle();
                 Navigator.pop(dialogContext);
               },
               child: const Text('Apply'),
@@ -549,6 +644,223 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
         ),
       ),
     );
+  }
+
+  // ── Lasso selection engine ───────────────────────────────────────────────
+
+  /// The bounding box shifted by the in-flight translation, used for hit
+  /// testing and for rendering the selection frame while dragging.
+  Rect? get _currentSelectionBounds =>
+      _selectionBounds?.shift(_lassoTranslation);
+
+  void _onLassoTapDown(TapDownDetails details) {
+    _lassoTapDown = details.localPosition;
+  }
+
+  /// Single tap: if it lands outside the selection frame, commit the pending
+  /// translation and clear the selection.
+  void _onLassoTap() {
+    if (_lassoTapDown == null || _selectedStrokeIndices.isEmpty) return;
+    if (!(_currentSelectionBounds?.contains(_lassoTapDown!) ?? false)) {
+      _commitLassoTranslation();
+    }
+    _lassoTapDown = null;
+  }
+
+  void _onLassoPanStart(DragStartDetails details) {
+    final pos = details.localPosition;
+
+    if (_selectedStrokeIndices.isNotEmpty) {
+      if (_currentSelectionBounds?.contains(pos) ?? false) {
+        _isDraggingSelection = true;
+        return;
+      }
+      _commitLassoTranslation();
+    }
+
+    _isDrawingLasso = true;
+    _lassoPoints = [pos];
+    setState(() {});
+  }
+
+  void _onLassoPanUpdate(DragUpdateDetails details) {
+    if (_isDraggingSelection) {
+      setState(() => _lassoTranslation += details.delta);
+    } else if (_isDrawingLasso) {
+      setState(() => _lassoPoints.add(details.localPosition));
+    }
+  }
+
+  void _onLassoPanEnd(DragEndDetails details) {
+    if (_isDraggingSelection) {
+      _isDraggingSelection = false;
+      setState(() {});
+      return;
+    }
+
+    if (_isDrawingLasso && _lassoPoints.length > 2) {
+      _selectStrokesInLasso();
+    }
+    _isDrawingLasso = false;
+    setState(() {});
+  }
+
+  /// Closes the drawn path into a polygon and flags every stroke whose points
+  /// intersect it, then hides those strokes from the Scribble canvas so the
+  /// overlay can render them (translated) without a duplicate ghost.
+  void _selectStrokesInLasso() {
+    final lines = _scribble.currentSketch.lines;
+    final selected = <int>{};
+
+    for (var i = 0; i < lines.length; i++) {
+      if (_strokeIntersectsLasso(lines[i])) {
+        selected.add(i);
+      }
+    }
+
+    if (selected.isEmpty) {
+      _lassoPoints = [];
+      _isDrawingLasso = false;
+      setState(() {});
+      return;
+    }
+
+    _sketchBeforeLasso = _scribble.currentSketch;
+
+    final reducedLines = <SketchLine>[];
+    for (var i = 0; i < lines.length; i++) {
+      if (!selected.contains(i)) {
+        reducedLines.add(lines[i]);
+      }
+    }
+
+    setState(() {
+      _selectedStrokeIndices = selected;
+      _selectionBounds = _boundsForStrokes(lines, selected);
+      _lassoPoints = [];
+      _lassoTranslation = Offset.zero;
+    });
+
+    _isSettingLassoSketch = true;
+    _scribble.setSketch(
+      sketch: Sketch(lines: reducedLines),
+      addToUndoHistory: false,
+    );
+    _isSettingLassoSketch = false;
+    _isSketchReduced = true;
+  }
+
+  bool _strokeIntersectsLasso(SketchLine line) {
+    for (final p in line.points) {
+      if (_pointInLassoPolygon(Offset(p.x, p.y))) return true;
+    }
+    return false;
+  }
+
+  /// Ray-casting point-in-polygon test.
+  bool _pointInLassoPolygon(Offset point) {
+    final polygon = _lassoPoints;
+    if (polygon.length < 3) return false;
+
+    var crossings = 0;
+    for (var i = 0; i < polygon.length; i++) {
+      final a = polygon[i];
+      final b = polygon[(i + 1) % polygon.length];
+      if (((a.dy > point.dy) != (b.dy > point.dy)) &&
+          (point.dx <
+              (b.dx - a.dx) * (point.dy - a.dy) / (b.dy - a.dy) + a.dx)) {
+        crossings++;
+      }
+    }
+    return crossings.isOdd;
+  }
+
+  Rect _boundsForStrokes(List<SketchLine> lines, Set<int> indices) {
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+
+    for (final i in indices) {
+      final line = lines[i];
+      for (final p in line.points) {
+        minX = math.min(minX, p.x);
+        minY = math.min(minY, p.y);
+        maxX = math.max(maxX, p.x);
+        maxY = math.max(maxY, p.y);
+      }
+    }
+    return Rect.fromLTRB(minX - 10, minY - 10, maxX + 10, maxY + 10);
+  }
+
+  /// Applies the pending translation to the selected strokes and rebuilds the
+  /// sketch in a single undo-friendly mutation, then clears the selection.
+  void _commitLassoTranslation() {
+    if (_selectedStrokeIndices.isEmpty) {
+      _clearLassoSelection();
+      return;
+    }
+
+    final original = _sketchBeforeLasso;
+    if (_lassoTranslation == Offset.zero || original == null) {
+      // Nothing moved: restore the untouched sketch.
+      _clearLassoSelection();
+      return;
+    }
+
+    final reducedLines = _scribble.currentSketch.lines;
+    final movedLines = <SketchLine>[];
+
+    for (var i = 0; i < original.lines.length; i++) {
+      if (!_selectedStrokeIndices.contains(i)) continue;
+      final line = original.lines[i];
+      movedLines.add(
+        SketchLine(
+          points: line.points
+              .map(
+                (p) => Point(
+                  p.x + _lassoTranslation.dx,
+                  p.y + _lassoTranslation.dy,
+                  pressure: p.pressure,
+                ),
+              )
+              .toList(),
+          color: line.color,
+          width: line.width,
+        ),
+      );
+    }
+
+    _isSettingLassoSketch = true;
+    _scribble.setSketch(sketch: Sketch(lines: [...reducedLines, ...movedLines]));
+    _isSettingLassoSketch = false;
+    _isSketchReduced = false;
+    _clearLassoSelection();
+  }
+
+  void _clearLassoSelection() {
+    // If we temporarily removed the selected strokes, put them back (without
+    // touching undo history) so the canvas matches the pre-lasso state. Skip
+    // the restore when the canvas was already changed externally (undo/redo).
+    if (_isSketchReduced &&
+        _sketchBeforeLasso != null &&
+        !_lassoStaleByExternalChange) {
+      _isSettingLassoSketch = true;
+      _scribble.setSketch(
+        sketch: _sketchBeforeLasso!,
+        addToUndoHistory: false,
+      );
+      _isSettingLassoSketch = false;
+      _isSketchReduced = false;
+    }
+
+    _sketchBeforeLasso = null;
+    _lassoPoints = [];
+    _isDrawingLasso = false;
+    _selectedStrokeIndices = {};
+    _selectionBounds = null;
+    _lassoTranslation = Offset.zero;
+    _isDraggingSelection = false;
+    _lassoStaleByExternalChange = false;
+    if (mounted) setState(() {});
   }
 
   // ── Builders ─────────────────────────────────────────────────────────────
@@ -586,10 +898,13 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
           _buildNoteLayer(cs),
           Positioned.fill(
             child: IgnorePointer(
-              ignoring: _mode == NoteMode.text,
+              ignoring:
+                  _mode == NoteMode.text || _activeTool == _DrawingTool.lasso,
               child: Scribble(notifier: _scribble),
             ),
           ),
+          if (_mode == NoteMode.drawing && _activeTool == _DrawingTool.lasso)
+            Positioned.fill(child: _buildLassoOverlay()),
         ],
       ),
       bottomNavigationBar: _buildToolbar(),
@@ -628,37 +943,24 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
             Expanded(
               child: Stack(
                 children: [
-                  TextField(
-                    key: _contentKey,
-                    controller: _contentController,
+                  QuillEditor.basic(
+                    controller: _quillController,
                     focusNode: _contentFocus,
-                    textCapitalization: TextCapitalization.sentences,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: TextStyle(
-                      fontFamily: _fontFamily,
-                      fontSize: _fontSize,
-                      fontWeight: _bold ? FontWeight.w700 : FontWeight.w400,
-                      fontStyle: _italic ? FontStyle.italic : FontStyle.normal,
-                      decoration: _underline ? TextDecoration.underline : TextDecoration.none,
-                      color: textColor,
-                      height: 1.5,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Start typing...',
-                      hintStyle: TextStyle(
-                        color: hintColor,
-                        fontSize: _fontSize,
-                        fontStyle: FontStyle.italic,
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                    scrollController: _scrollController,
+                    config: QuillEditorConfig(
+                      editorKey: _editorKey,
+                      expands: true,
+                      scrollable: true,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      placeholder: 'Start typing...',
+                      enableSelectionToolbar: false,
+                      scrollBottomInset: 0,
+                      scrollPhysics: const ClampingScrollPhysics(),
                     ),
                   ),
-                  // Gesture overlay: sits on top of the field so it wins the
+                  // Gesture overlay: sits on top of the editor so it wins the
                   // gesture arena, letting us implement Samsung-style tap
-                  // semantics without fighting EditableText's recognizers.
+                  // semantics without fighting QuillEditor's recognizers.
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
@@ -675,6 +977,28 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLassoOverlay() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: _onLassoTapDown,
+      onTap: _onLassoTap,
+      onPanStart: _onLassoPanStart,
+      onPanUpdate: _onLassoPanUpdate,
+      onPanEnd: _onLassoPanEnd,
+      child: CustomPaint(
+        painter: _LassoPainter(
+          lassoPoints: _lassoPoints,
+          isDrawingLasso: _isDrawingLasso,
+          selectionBounds: _selectionBounds,
+          selectedStrokeIndices: _selectedStrokeIndices,
+          lassoTranslation: _lassoTranslation,
+          currentSketch: _scribble.currentSketch,
+        ),
+        size: Size.infinite,
       ),
     );
   }
@@ -722,22 +1046,22 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
         cs,
         icon: Icons.format_bold_rounded,
         tooltip: 'Bold',
-        onTap: () => setState(() => _bold = !_bold),
-        selected: _bold,
+        onTap: () => _toggleAttribute(Attribute.bold),
+        selected: _isBold,
       ),
       _toolbarButton(
         cs,
         icon: Icons.format_italic_rounded,
         tooltip: 'Italics',
-        onTap: () => setState(() => _italic = !_italic),
-        selected: _italic,
+        onTap: () => _toggleAttribute(Attribute.italic),
+        selected: _isItalic,
       ),
       _toolbarButton(
         cs,
         icon: Icons.format_underline_rounded,
         tooltip: 'Underline',
-        onTap: () => setState(() => _underline = !_underline),
-        selected: _underline,
+        onTap: () => _toggleAttribute(Attribute.underline),
+        selected: _isUnderline,
       ),
       _toolbarButton(
         cs,
@@ -896,5 +1220,191 @@ class _CreateNoteScreenState extends ConsumerState<CreateNoteScreen> {
         ),
       ),
     );
+  }
+}
+
+/// Paints the lasso selection UI: the dashed selection polygon while drawing,
+/// the selected (possibly translated) strokes, and the draggable bounding box.
+class _LassoPainter extends CustomPainter {
+  final List<Offset> lassoPoints;
+  final bool isDrawingLasso;
+  final Rect? selectionBounds;
+  final Set<int> selectedStrokeIndices;
+  final Offset lassoTranslation;
+  final Sketch? currentSketch;
+
+  _LassoPainter({
+    required this.lassoPoints,
+    required this.isDrawingLasso,
+    this.selectionBounds,
+    this.selectedStrokeIndices = const {},
+    this.lassoTranslation = Offset.zero,
+    this.currentSketch,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _paintSelectedStrokes(canvas);
+    _paintSelectionOverlay(canvas);
+  }
+
+  void _paintSelectedStrokes(Canvas canvas) {
+    final sketch = currentSketch;
+    if (sketch == null || selectedStrokeIndices.isEmpty) return;
+
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (final index in selectedStrokeIndices) {
+      if (index < 0 || index >= sketch.lines.length) continue;
+      final line = sketch.lines[index];
+      final path = _pathForLine(line);
+      if (path == null) continue;
+      paint.color = Color(line.color);
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  Path? _pathForLine(SketchLine line) {
+    if (line.points.isEmpty) return null;
+
+    final simulatePressure = line.points.every(
+      (p) => p.pressure == line.points.first.pressure,
+    );
+
+    final outlinePoints = pf.getStroke(
+      line.points
+          .map(
+            (p) => pf.PointVector(
+              p.x + lassoTranslation.dx,
+              p.y + lassoTranslation.dy,
+              p.pressure,
+            ),
+          )
+          .toList(),
+      options: pf.StrokeOptions(
+        size: line.width * 2,
+        simulatePressure: simulatePressure,
+      ),
+    );
+
+    if (outlinePoints.isEmpty) return null;
+
+    if (outlinePoints.length < 2) {
+      return Path()
+        ..addOval(
+          Rect.fromCircle(
+            center: Offset(outlinePoints[0].dx, outlinePoints[0].dy),
+            radius: 1,
+          ),
+        );
+    }
+
+    final path = Path()..moveTo(outlinePoints[0].dx, outlinePoints[0].dy);
+    for (var i = 1; i < outlinePoints.length - 1; i++) {
+      final p0 = outlinePoints[i];
+      final p1 = outlinePoints[i + 1];
+      path.quadraticBezierTo(
+        p0.dx,
+        p0.dy,
+        (p0.dx + p1.dx) / 2,
+        (p0.dy + p1.dy) / 2,
+      );
+    }
+    return path;
+  }
+
+  void _paintSelectionOverlay(Canvas canvas) {
+    if (isDrawingLasso && lassoPoints.length > 1) {
+      _paintDashedPolygon(canvas);
+    }
+
+    final bounds = selectionBounds;
+    if (bounds != null && selectedStrokeIndices.isNotEmpty && !isDrawingLasso) {
+      _paintBoundingBox(canvas, bounds.shift(lassoTranslation));
+    }
+  }
+
+  void _paintDashedPolygon(Canvas canvas) {
+    final path = Path();
+    path.moveTo(lassoPoints.first.dx, lassoPoints.first.dy);
+    for (var i = 1; i < lassoPoints.length; i++) {
+      path.lineTo(lassoPoints[i].dx, lassoPoints[i].dy);
+    }
+    path.close();
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.blueAccent.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill,
+    );
+    _drawDashedPath(
+      canvas,
+      path,
+      Paint()
+        ..color = Colors.blueAccent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+  }
+
+  void _drawDashedPath(Canvas canvas, Path path, Paint paint) {
+    const dash = 8.0;
+    const gap = 6.0;
+    for (final metric in path.computeMetrics()) {
+      final total = metric.length;
+      var distance = 0.0;
+      while (distance < total) {
+        final endOffset = (distance + dash).clamp(0.0, total);
+        final start = metric.getTangentForOffset(distance)?.position;
+        final end = metric.getTangentForOffset(endOffset)?.position;
+        if (start != null && end != null) {
+          canvas.drawLine(start, end, paint);
+        }
+        distance += dash + gap;
+      }
+    }
+  }
+
+  void _paintBoundingBox(Canvas canvas, Rect bounds) {
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..color = Colors.blueAccent.withValues(alpha: 0.05)
+        ..style = PaintingStyle.fill,
+    );
+    _drawDashedPath(
+      canvas,
+      Path()..addRect(bounds),
+      Paint()
+        ..color = Colors.blueAccent.withValues(alpha: 0.6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    const handle = 7.0;
+    final handlePaint = Paint()
+      ..color = Colors.blueAccent
+      ..style = PaintingStyle.fill;
+    for (final corner in [
+      bounds.topLeft,
+      bounds.topRight,
+      bounds.bottomLeft,
+      bounds.bottomRight,
+    ]) {
+      canvas.drawRect(
+        Rect.fromCenter(center: corner, width: handle, height: handle),
+        handlePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LassoPainter oldDelegate) {
+    return oldDelegate.lassoPoints != lassoPoints ||
+        oldDelegate.isDrawingLasso != isDrawingLasso ||
+        oldDelegate.selectionBounds != selectionBounds ||
+        oldDelegate.selectedStrokeIndices != selectedStrokeIndices ||
+        oldDelegate.lassoTranslation != lassoTranslation ||
+        oldDelegate.currentSketch != currentSketch;
   }
 }

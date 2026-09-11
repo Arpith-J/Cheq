@@ -49,12 +49,14 @@ dependencies:
   shared_preferences: ^2.5.5
   path_provider: ^2.1.5
   scribble: ^0.10.0
+  perfect_freehand: ^2.5.2
   flutter_image_compress: ^2.3.4
   share_plus: ^10.1.4
   fl_chart: ^0.70.2
   flutter_heatmap_calendar: ^1.0.5
   workmanager: ^0.10.7
   flutter_ringtone_player: ^4.0.0
+  flutter_quill: ^11.5.1
 
 dev_dependencies:
   flutter_test:
